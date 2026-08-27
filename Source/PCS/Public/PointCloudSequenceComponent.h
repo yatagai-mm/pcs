@@ -129,6 +129,7 @@ private:
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	int32 FrameCount = 0;
 
+	/** The current playback time in seconds. Double is used to reduce error accumulation. */
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	double PlaybackTimeSeconds = 0.0;
 
