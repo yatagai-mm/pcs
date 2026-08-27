@@ -112,7 +112,7 @@ public:
 	bool bAutoPlay = true;
 
 	/** Requested rendered point size. The renderer will consume this value later. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering", meta = (ClampMin = "0.0", UIMin = "0.1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float PointSize = 1.0f;
 
 private:
