@@ -99,11 +99,11 @@ public:
 
 	/** Sequence sampling rate. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback", meta = (ClampMin = "1.0", UIMin = "1.0"))
-	double FrameRate = 30.0;
+	float FrameRate = 30.0f;
 
 	/** Timeline speed multiplier. Zero freezes timeline advancement. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	double PlaybackRate = 1.0;
+	float PlaybackRate = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback")
 	bool bLoop = true;
@@ -120,7 +120,7 @@ private:
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
 
 	int32 ClampFrameIndex(int32 FrameIndex) const;
-	double GetSafeFrameRate() const;
+	float GetSafeFrameRate() const;
 	double GetSequenceDuration() const;
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")

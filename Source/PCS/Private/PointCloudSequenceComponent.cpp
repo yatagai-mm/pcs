@@ -30,7 +30,7 @@ void UPointCloudSequenceComponent::TickComponent(
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	check(IsInGameThread());
 
-	if (!bPlaying || FrameCount <= 0 || PlaybackRate <= 0.0)
+	if (!bPlaying || FrameCount <= 0 || PlaybackRate <= 0.0f)
 	{
 		return;
 	}
@@ -185,11 +185,15 @@ int32 UPointCloudSequenceComponent::ClampFrameIndex(int32 FrameIndex) const
 	return FMath::Clamp(FrameIndex, 0, FrameCount - 1);
 }
 
-double UPointCloudSequenceComponent::GetSafeFrameRate() const
+/**
+ * Returns the "safe" frame rate. 
+ * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint. */
+float UPointCloudSequenceComponent::GetSafeFrameRate() const
 {
-	return FMath::Max(FrameRate, 1.0);
+	return FMath::Max(FrameRate, 1.0f);
 }
 
+/** Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small. */
 double UPointCloudSequenceComponent::GetSequenceDuration() const
 {
 	if (FrameCount <= 0)
