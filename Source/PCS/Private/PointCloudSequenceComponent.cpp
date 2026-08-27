@@ -185,15 +185,11 @@ int32 UPointCloudSequenceComponent::ClampFrameIndex(int32 FrameIndex) const
 	return FMath::Clamp(FrameIndex, 0, FrameCount - 1);
 }
 
-/**
- * Returns the "safe" frame rate. 
- * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint. */
 float UPointCloudSequenceComponent::GetSafeFrameRate() const
 {
 	return FMath::Max(FrameRate, 1.0f);
 }
 
-/** Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small. */
 double UPointCloudSequenceComponent::GetSequenceDuration() const
 {
 	if (FrameCount <= 0)

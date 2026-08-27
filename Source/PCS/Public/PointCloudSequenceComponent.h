@@ -119,8 +119,19 @@ private:
 	void AdvancePlayback(float DeltaSeconds);
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
 
+	/**
+	 * Clamps the given frame index to the valid range of [0, FrameCount - 1].
+	 * SeekFrame is BlueprintCallable, so this method is necessary to ensure that the frame index is always valid.
+	 */
 	int32 ClampFrameIndex(int32 FrameIndex) const;
+	
+	/**
+ 	 * Returns the "safe" frame rate. 
+ 	 * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint.
+	 */
 	float GetSafeFrameRate() const;
+
+	/** Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small. */
 	double GetSequenceDuration() const;
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
