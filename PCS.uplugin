@@ -1,0 +1,16 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "PCS",
+	"Description": "Runtime playback and rendering of point cloud sequences.",
+	"Category": "Rendering",
+	"CanContainContent": true,
+	"Modules": [
+		{
+			"Name": "PCS",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
