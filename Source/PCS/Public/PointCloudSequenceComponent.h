@@ -116,7 +116,7 @@ public:
 	float PointSize = 1.0f;
 
 private:
-	void AdvancePlayback(double DeltaSeconds);
+	void AdvancePlayback(float DeltaSeconds);
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
 
 	int32 ClampFrameIndex(int32 FrameIndex) const;

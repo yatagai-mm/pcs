@@ -35,7 +35,7 @@ void UPointCloudSequenceComponent::TickComponent(
 		return;
 	}
 
-	AdvancePlayback(static_cast<double>(DeltaTime));
+	AdvancePlayback(DeltaTime);
 }
 
 void UPointCloudSequenceComponent::Play()
@@ -119,7 +119,7 @@ void UPointCloudSequenceComponent::SetFrameCount(int32 InFrameCount)
 	SeekFrame(CurrentFrameIndex);
 }
 
-void UPointCloudSequenceComponent::AdvancePlayback(double DeltaSeconds)
+void UPointCloudSequenceComponent::AdvancePlayback(float DeltaSeconds)
 {
 	check(IsInGameThread());
 
