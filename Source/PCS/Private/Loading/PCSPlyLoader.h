@@ -25,7 +25,8 @@ struct FPCSPlyLoadResult
  * Synchronous PLY decoder.
  *
  * The loader does not access UObjects and is intended to be called from a
- * worker task. This supports scalar vertex properties in binary little-endian PLY 1.0 files.
+ * worker task (inside UE::Tasks::Launch bracket).
+ * This supports scalar vertex properties in binary little-endian PLY 1.0 files.
  */
 class FPCSPlyLoader final
 {
