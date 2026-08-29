@@ -1,17 +1,12 @@
 #pragma once
 
-#include "CoreMinimal.h"
 #include "Components/PrimitiveComponent.h"
+#include "CoreMinimal.h"
 #include "UObject/SoftObjectPath.h"
 
 #include "PointCloudSequenceComponent.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
-	FPCSFrameChangedSignature,
-	int32,
-	PreviousFrameIndex,
-	int32,
-	CurrentFrameIndex);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSFrameChangedSignature, int32, PreviousFrameIndex, int32, CurrentFrameIndex);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
 
@@ -22,10 +17,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
  * frame decoding, render-thread state, and GPU resources are intentionally kept
  * out of this component and will be connected through immutable frame snapshots.
  */
-UCLASS(
-	BlueprintType,
-	ClassGroup = (PCS),
-	meta = (BlueprintSpawnableComponent, DisplayName = "Point Cloud Sequence"))
+UCLASS(BlueprintType, ClassGroup = (PCS), meta = (BlueprintSpawnableComponent, DisplayName = "Point Cloud Sequence"))
 class PCS_API UPointCloudSequenceComponent final : public UPrimitiveComponent
 {
 	GENERATED_BODY()
@@ -35,10 +27,7 @@ public:
 
 	virtual void BeginPlay() override;
 
-	virtual void TickComponent(
-		float DeltaTime,
-		ELevelTick TickType,
-		FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
 	/** Starts or resumes timeline advancement. This request is retained while the sequence is still loading. */
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
@@ -62,7 +51,7 @@ public:
 
 	/** Changes the source directory and resets the current playback state. No file access occurs here. */
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
-	void SetSequenceDirectory(const FString& Directory);
+	void SetSequenceDirectory(const FString &Directory);
 
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Source")
 	FString GetSequenceDirectory() const;

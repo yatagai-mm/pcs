@@ -22,10 +22,7 @@ void UPointCloudSequenceComponent::BeginPlay()
 	}
 }
 
-void UPointCloudSequenceComponent::TickComponent(
-	float DeltaTime,
-	ELevelTick TickType,
-	FActorComponentTickFunction* ThisTickFunction)
+void UPointCloudSequenceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	check(IsInGameThread());
@@ -86,7 +83,7 @@ void UPointCloudSequenceComponent::SeekTime(double TimeSeconds)
 	SetCurrentFrameInternal(ClampFrameIndex(DesiredFrame));
 }
 
-void UPointCloudSequenceComponent::SetSequenceDirectory(const FString& Directory)
+void UPointCloudSequenceComponent::SetSequenceDirectory(const FString &Directory)
 {
 	check(IsInGameThread());
 
@@ -187,10 +184,7 @@ int32 UPointCloudSequenceComponent::ClampFrameIndex(int32 FrameIndex) const
 	return FMath::Clamp(FrameIndex, 0, FrameCount - 1);
 }
 
-float UPointCloudSequenceComponent::GetSafeFrameRate() const
-{
-	return FMath::Max(FrameRate, 1.0f);
-}
+float UPointCloudSequenceComponent::GetSafeFrameRate() const { return FMath::Max(FrameRate, 1.0f); }
 
 double UPointCloudSequenceComponent::GetSequenceDuration() const
 {

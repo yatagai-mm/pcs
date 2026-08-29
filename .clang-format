@@ -1,0 +1,10 @@
+BasedOnStyle: LLVM
+Language: Cpp
+
+UseTab: Always
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+
+BreakBeforeBraces: Allman
+ColumnLimit: 160
