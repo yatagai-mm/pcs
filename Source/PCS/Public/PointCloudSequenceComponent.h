@@ -29,27 +29,27 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
-	/** Starts or resumes timeline advancement. This request is retained while the sequence is still loading. */
+	// Starts or resumes timeline advancement. This request is retained while the sequence is still loading.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void Play();
 
-	/** Pauses timeline advancement without changing the selected frame. */
+	// Pauses timeline advancement without changing the selected frame.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void Pause();
 
-	/** Stops playback and returns to frame zero. */
+	// Stops playback and returns to frame zero.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void Stop();
 
-	/** Selects a frame immediately. Out-of-range values are clamped when the frame count is known. */
+	// Selects a frame immediately. Out-of-range values are clamped when the frame count is known.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void SeekFrame(int32 FrameIndex);
 
-	/** Selects a timeline position in seconds. */
+	// Selects a timeline position in seconds.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void SeekTime(double TimeSeconds);
 
-	/** Changes the source directory and resets the current playback state. No file access occurs here. */
+	// Changes the source directory and resets the current playback state. No file access occurs here.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
 	void SetSequenceDirectory(const FString &Directory);
 
@@ -74,23 +74,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
 	double GetPlaybackTime() const { return PlaybackTimeSeconds; }
 
-	/** Emitted on the game thread whenever the selected frame changes. */
+	// Emitted on the game thread whenever the selected frame changes.
 	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
 	FPCSFrameChangedSignature OnFrameChanged;
 
-	/** Emitted on the game thread when non-looping playback reaches the end. */
+	// Emitted on the game thread when non-looping playback reaches the end.
 	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
 	FPCSPlaybackFinishedSignature OnPlaybackFinished;
 
-	/** Directory containing the frame sequence. The loader will interpret its contents later. */
+	// Directory containing the frame sequence. The loader will interpret its contents later.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Source")
 	FDirectoryPath SequenceDirectory;
 
-	/** Sequence sampling rate. */
+	// Sequence sampling rate.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback", meta = (ClampMin = "1.0", UIMin = "1.0"))
 	float FrameRate = 30.0f;
 
-	/** Timeline speed multiplier. Zero freezes timeline advancement. */
+	// Timeline speed multiplier. Zero freezes timeline advancement.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float PlaybackRate = 1.0f;
 
@@ -100,7 +100,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback")
 	bool bAutoPlay = true;
 
-	/** Requested rendered point size. The renderer will consume this value later. */
+	// Requested rendered point size. The renderer will consume this value later.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float PointSize = 1.0f;
 
@@ -120,7 +120,7 @@ private:
 	 */
 	float GetSafeFrameRate() const;
 
-	/** Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small. */
+	// Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small.
 	double GetSequenceDuration() const;
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
@@ -129,7 +129,7 @@ private:
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	int32 FrameCount = 0;
 
-	/** The current playback time in seconds. Double is used to reduce error accumulation. */
+	// The current playback time in seconds. Double is used to reduce error accumulation.
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	double PlaybackTimeSeconds = 0.0;
 
