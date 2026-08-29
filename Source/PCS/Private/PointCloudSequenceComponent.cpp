@@ -64,6 +64,7 @@ void UPointCloudSequenceComponent::SeekFrame(int32 FrameIndex)
 	check(IsInGameThread());
 
 	const int32 ClampedFrameIndex = ClampFrameIndex(FrameIndex);
+	// Increase precision by making dividend double
 	PlaybackTimeSeconds = static_cast<double>(ClampedFrameIndex) / GetSafeFrameRate();
 	SetCurrentFrameInternal(ClampedFrameIndex);
 }
@@ -75,6 +76,7 @@ void UPointCloudSequenceComponent::SeekTime(double TimeSeconds)
 	double ClampedTime = FMath::Max(0.0, TimeSeconds);
 	if (FrameCount > 0)
 	{
+		// Increase precision by making dividend double
 		const double LastFrameTime = static_cast<double>(FrameCount - 1) / GetSafeFrameRate();
 		ClampedTime = FMath::Min(ClampedTime, LastFrameTime);
 	}
