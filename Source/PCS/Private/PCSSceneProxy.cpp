@@ -1,11 +1,21 @@
 #include "PCSSceneProxy.h"
 
+#include "Data/PCSFrameData.h"
 #include "PointCloudSequenceComponent.h"
 
 FPCSSceneProxy::FPCSSceneProxy(const UPointCloudSequenceComponent *Component) : FPrimitiveSceneProxy(Component)
 {
 	check(IsInGameThread());
 	bWillEverBeLit = false;
+}
+
+void FPCSSceneProxy::SetFrameData_RenderThread(
+	int32 InFrameIndex,
+	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> InFrameData)
+{
+	check(IsInRenderingThread());
+	FrameIndex = InFrameIndex;
+	FrameData = MoveTemp(InFrameData);
 }
 
 SIZE_T FPCSSceneProxy::GetTypeHash() const

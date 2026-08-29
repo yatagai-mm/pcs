@@ -2,6 +2,7 @@
 
 #include "PrimitiveSceneProxy.h"
 
+struct FPCSFrameData;
 class UPointCloudSequenceComponent;
 
 /**
@@ -17,6 +18,10 @@ class FPCSSceneProxy final : public FPrimitiveSceneProxy
 public:
 	explicit FPCSSceneProxy(const UPointCloudSequenceComponent *Component);
 
+	void SetFrameData_RenderThread(
+		int32 InFrameIndex,
+		TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> InFrameData);
+
 	// Get an identifier for this class type
 	virtual SIZE_T GetTypeHash() const override;
 
@@ -25,4 +30,8 @@ public:
 
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView *View) const override;
 	virtual uint32 GetMemoryFootprint() const override;
+
+private:
+	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData;
+	int32 FrameIndex = INDEX_NONE;
 };

@@ -6,6 +6,8 @@
 
 #include "PointCloudSequenceComponent.generated.h"
 
+struct FPCSFrameData;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSFrameChangedSignature, int32, PreviousFrameIndex, int32, CurrentFrameIndex);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
@@ -13,9 +15,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
 /**
  * Game-thread-facing playback component for a point-cloud frame sequence.
  *
- * This class owns only playback state and the public runtime API. PLY loading,
- * frame decoding, render-thread state, and GPU resources are intentionally kept
- * out of this component and will be connected through immutable frame snapshots.
+ * This class owns playback state, discovers the source sequence, and coordinates
+ * asynchronous PLY loading. Render-thread state and GPU resources remain in the
+ * scene proxy.
  */
 UCLASS(BlueprintType, ClassGroup = (PCS), meta = (BlueprintSpawnableComponent, DisplayName = "Point Cloud Sequence"))
 class PCS_API UPointCloudSequenceComponent final : public UPrimitiveComponent
@@ -26,8 +28,10 @@ public:
 	UPointCloudSequenceComponent();
 
 	virtual FPrimitiveSceneProxy *CreateSceneProxy() override;
+	virtual void SendRenderDynamicData_Concurrent() override;
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
@@ -51,12 +55,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void SeekTime(double TimeSeconds);
 
-	// Changes the source directory and resets the current playback state. No file access occurs here.
+	// Changes the source directory, rescans it, and resets the current playback state.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
 	void SetSequenceDirectory(const FString &Directory);
 
+	/**
+	 * Changes both source inputs and rescans the directory. Capture group 1 of
+	 * FileNameRegex must contain the integer sequence number.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
+	void SetSequenceSource(const FString &Directory, const FString &FileNameRegex);
+
+	/** Rescans the configured directory and requests the first matching frame. */
+	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
+	bool RefreshSequence();
+
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Source")
 	FString GetSequenceDirectory() const;
+
+	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Source")
+	FString GetFrameFileNameRegex() const { return FrameFileNameRegex; }
 
 	/**
 	 * Publishes the number of frames discovered by a loader.
@@ -74,6 +92,9 @@ public:
 	int32 GetFrameCount() const { return FrameCount; }
 
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
+	int32 GetLoadedFrame() const { return LoadedFrameIndex; }
+
+	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
 	double GetPlaybackTime() const { return PlaybackTimeSeconds; }
 
 	// Emitted on the game thread whenever the selected frame changes.
@@ -84,9 +105,16 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
 	FPCSPlaybackFinishedSignature OnPlaybackFinished;
 
-	// Directory containing the frame sequence. The loader will interpret its contents later.
+	// Directory containing the PLY frame sequence.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Source")
 	FDirectoryPath SequenceDirectory;
+
+	/**
+	 * Full-file-name regular expression. Capture group 1 is parsed as the sequence
+	 * number used to order matching files.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Source")
+	FString FrameFileNameRegex = TEXT("^frame_(\\d+)\\.ply$");
 
 	// Sequence sampling rate.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Playback", meta = (ClampMin = "1.0", UIMin = "1.0"))
@@ -109,6 +137,10 @@ public:
 private:
 	void AdvancePlayback(float DeltaSeconds);
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
+	void RequestFrameLoad(int32 FrameIndex);
+	void LaunchPendingFrameLoad();
+	void HandleFrameLoadCompleted(uint64 RequestId, uint64 RequestGeneration, int32 FrameIndex, struct FPCSPlyLoadResult &&Result);
+	void InvalidatePendingLoads();
 
 	/**
 	 * Clamps the given frame index to the valid range of [0, FrameCount - 1].
@@ -137,4 +169,15 @@ private:
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	bool bPlaying = false;
+
+	TArray<FString> SequenceFilePaths;
+	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> CurrentFrameData;
+
+	int32 LoadedFrameIndex = INDEX_NONE;
+	int32 LoadingFrameIndex = INDEX_NONE;
+	int32 PendingLoadFrameIndex = INDEX_NONE; // A single buffer for the next frame. New frame will replace this one
+
+	uint64 SequenceGeneration = 0;
+	uint64 NextLoadRequestId = 0;
+	uint64 ActiveLoadRequestId = 0;
 };

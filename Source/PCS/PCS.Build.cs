@@ -14,6 +14,11 @@ public class PCS : ModuleRules
 				"Engine"
 			});
 
-		PrivateDependencyModuleNames.Add("Projects");
+		PrivateDependencyModuleNames.AddRange(
+			new string[]
+			{
+				"Projects",
+				"RenderCore"
+			});
 	}
 }
