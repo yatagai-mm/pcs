@@ -25,6 +25,8 @@ class PCS_API UPointCloudSequenceComponent final : public UPrimitiveComponent
 public:
 	UPointCloudSequenceComponent();
 
+	virtual FPrimitiveSceneProxy *CreateSceneProxy() override;
+
 	virtual void BeginPlay() override;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;

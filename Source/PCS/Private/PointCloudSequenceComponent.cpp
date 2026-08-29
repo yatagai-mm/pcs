@@ -1,6 +1,7 @@
 #include "PointCloudSequenceComponent.h"
 
 #include "Math/UnrealMathUtility.h"
+#include "PCSSceneProxy.h"
 
 UPointCloudSequenceComponent::UPointCloudSequenceComponent()
 {
@@ -9,6 +10,12 @@ UPointCloudSequenceComponent::UPointCloudSequenceComponent()
 
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SetGenerateOverlapEvents(false);
+}
+
+FPrimitiveSceneProxy *UPointCloudSequenceComponent::CreateSceneProxy()
+{
+	check(IsInGameThread());
+	return new FPCSSceneProxy(this);
 }
 
 void UPointCloudSequenceComponent::BeginPlay()
