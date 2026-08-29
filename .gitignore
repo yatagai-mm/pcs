@@ -1,0 +1,8 @@
+/Binaries/
+/DerivedDataCache/
+/Intermediate/
+/Saved/
+/.vscode/
+/compile_commands.json
+/*.code-workspace
+/*.xcworkspace
