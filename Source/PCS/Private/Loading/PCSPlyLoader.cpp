@@ -370,7 +370,7 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 	const FPCSPlyProperty *AlphaProperty = FindProperty(Header, TEXT("alpha"));
 
 	TSharedRef<FPCSFrameData, ESPMode::ThreadSafe> MutableFrame = MakeShared<FPCSFrameData, ESPMode::ThreadSafe>();
-	MutableFrame->Points.SetNumUninitialized(static_cast<int32>(Header.VertexCount));
+	MutableFrame->Vertices.SetNumUninitialized(static_cast<int32>(Header.VertexCount));
 
 	if (!FileHandle->Seek(Header.DataOffset))
 	{
@@ -393,19 +393,19 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 		for (int32 ChunkIndex = 0; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
 		{
 			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
-			FPCSPoint &Point = MutableFrame->Points[static_cast<int32>(FirstVertex) + ChunkIndex];
-			Point.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
-									   static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
-									   static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
+			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
+			Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
+										   static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
+										   static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
 
-			if (!FMath::IsFinite(Point.Position.X) || !FMath::IsFinite(Point.Position.Y) || !FMath::IsFinite(Point.Position.Z))
+			if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
 			{
 				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
 			}
 
-			Point.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
-								 ReadColor(VertexData, AlphaProperty, 255));
-			MutableFrame->Bounds += Point.Position;
+			Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
+								  ReadColor(VertexData, AlphaProperty, 255));
+			MutableFrame->Bounds += Vertex.Position;
 		}
 	}
 
