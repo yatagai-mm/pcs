@@ -13,5 +13,7 @@ public class PCS : ModuleRules
 				"CoreUObject",
 				"Engine"
 			});
+
+		PrivateDependencyModuleNames.Add("Projects");
 	}
 }
