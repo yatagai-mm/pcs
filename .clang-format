@@ -1,10 +1,20 @@
 BasedOnStyle: LLVM
 Language: Cpp
 
-UseTab: Always
+UseTab: ForContinuationAndIndentation
 IndentWidth: 4
 TabWidth: 4
 ContinuationIndentWidth: 4
+AccessModifierOffset: -4
 
 BreakBeforeBraces: Allman
 ColumnLimit: 160
+
+StatementMacros:
+  - UPROPERTY
+  - UFUNCTION
+  - UCLASS
+  - USTRUCT
+  - UENUM
+  - UINTERFACE
+  - GENERATED_BODY

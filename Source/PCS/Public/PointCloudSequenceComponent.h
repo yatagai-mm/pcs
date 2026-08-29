@@ -113,10 +113,10 @@ private:
 	 * SeekFrame is BlueprintCallable, so this method is necessary to ensure that the frame index is always valid.
 	 */
 	int32 ClampFrameIndex(int32 FrameIndex) const;
-	
+
 	/**
- 	 * Returns the "safe" frame rate. 
- 	 * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint.
+	 * Returns the "safe" frame rate.
+	 * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint.
 	 */
 	float GetSafeFrameRate() const;
 
