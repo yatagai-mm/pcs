@@ -25,6 +25,7 @@ UPointCloudSequenceComponent::UPointCloudSequenceComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
+	BufferedFrames.Reserve(FrameBufferSize);
 
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SetGenerateOverlapEvents(false);
@@ -71,6 +72,7 @@ void UPointCloudSequenceComponent::EndPlay(const EEndPlayReason::Type EndPlayRea
 	bPlaying = false;
 	InvalidatePendingLoads();
 	CurrentFrameData.Reset();
+	BufferedFrames.Reset();
 	LoadedFrameIndex = INDEX_NONE;
 
 	Super::EndPlay(EndPlayReason);
@@ -162,6 +164,7 @@ bool UPointCloudSequenceComponent::RefreshSequence()
 	PlaybackTimeSeconds = 0.0;
 	LoadedFrameIndex = INDEX_NONE;
 	CurrentFrameData.Reset();
+	BufferedFrames.Reset();
 	MarkRenderDynamicDataDirty();
 
 	if (SequenceDirectory.Path.IsEmpty() || FrameFileNameRegex.IsEmpty())
@@ -245,6 +248,12 @@ FString UPointCloudSequenceComponent::GetSequenceDirectory() const
 	return SequenceDirectory.Path;
 }
 
+int32 UPointCloudSequenceComponent::GetBufferedFrame() const
+{
+	check(IsInGameThread());
+	return BufferedFrames.IsEmpty() ? INDEX_NONE : BufferedFrames[0].FrameIndex;
+}
+
 void UPointCloudSequenceComponent::SetFrameCount(int32 InFrameCount)
 {
 	check(IsInGameThread());
@@ -303,17 +312,35 @@ void UPointCloudSequenceComponent::SetCurrentFrameInternal(int32 NewFrameIndex)
 	check(IsInGameThread());
 
 	const int32 ClampedFrameIndex = ClampFrameIndex(NewFrameIndex);
-	if (CurrentFrameIndex == ClampedFrameIndex)
-	{
-		RequestFrameLoad(ClampedFrameIndex);
-		return;
-	}
-
+	const bool bFrameChanged = CurrentFrameIndex != ClampedFrameIndex;
 	const int32 PreviousFrameIndex = CurrentFrameIndex;
 	CurrentFrameIndex = ClampedFrameIndex;
 
-	RequestFrameLoad(CurrentFrameIndex);
-	OnFrameChanged.Broadcast(PreviousFrameIndex, CurrentFrameIndex);
+	// A seek can make parsed look-ahead frames irrelevant before their
+	// presentation times arrive. Keep the selected frame long enough to
+	// activate it below, plus frames in the new look-ahead window.
+	for (int32 BufferIndex = BufferedFrames.Num() - 1; BufferIndex >= 0; --BufferIndex)
+	{
+		const int32 BufferedFrameIndex = BufferedFrames[BufferIndex].FrameIndex;
+		if (BufferedFrameIndex != CurrentFrameIndex && !IsFrameInBufferWindow(BufferedFrameIndex))
+		{
+			BufferedFrames.RemoveAt(BufferIndex);
+		}
+	}
+
+	if (!TryActivateBufferedFrame(CurrentFrameIndex) && LoadedFrameIndex != CurrentFrameIndex)
+	{
+		RequestFrameLoad(CurrentFrameIndex);
+	}
+	else
+	{
+		RequestNextFrameLoad();
+	}
+
+	if (bFrameChanged)
+	{
+		OnFrameChanged.Broadcast(PreviousFrameIndex, CurrentFrameIndex);
+	}
 }
 
 void UPointCloudSequenceComponent::RequestFrameLoad(int32 FrameIndex)
@@ -325,15 +352,64 @@ void UPointCloudSequenceComponent::RequestFrameLoad(int32 FrameIndex)
 		return;
 	}
 
+	if (LoadedFrameIndex == FrameIndex || IsFrameBuffered(FrameIndex))
+	{
+		if (PendingLoadFrameIndex == FrameIndex)
+		{
+			PendingLoadFrameIndex = INDEX_NONE;
+		}
+		return;
+	}
+
+	if (LoadingFrameIndex == FrameIndex && ActiveLoadGeneration == SequenceGeneration)
+	{
+		// The active load is once again the most relevant request. Discard a
+		// newer request that may have been queued by a transient seek.
+		PendingLoadFrameIndex = INDEX_NONE;
+		return;
+	}
+
 	PendingLoadFrameIndex = FrameIndex;
-	if (LoadedFrameIndex == FrameIndex)
+	if (ActiveLoadRequestId == 0)
+	{
+		LaunchPendingFrameLoad();
+	}
+}
+
+void UPointCloudSequenceComponent::RequestNextFrameLoad()
+{
+	check(IsInGameThread());
+
+	if (ActiveLoadRequestId != 0 || PendingLoadFrameIndex != INDEX_NONE)
 	{
 		return;
 	}
 
-	if (ActiveLoadRequestId == 0)
+	// The playback target always has priority over prefetching.
+	if (LoadedFrameIndex != CurrentFrameIndex)
 	{
-		LaunchPendingFrameLoad();
+		RequestFrameLoad(CurrentFrameIndex);
+		return;
+	}
+
+	if (BufferedFrames.Num() >= FrameBufferSize)
+	{
+		return;
+	}
+
+	for (int32 Offset = 1; Offset <= FrameBufferSize; ++Offset)
+	{
+		const int32 FrameIndex = GetFollowingFrameIndex(CurrentFrameIndex, Offset);
+		if (FrameIndex == INDEX_NONE)
+		{
+			return;
+		}
+
+		if (!IsFrameBuffered(FrameIndex))
+		{
+			RequestFrameLoad(FrameIndex);
+			return;
+		}
 	}
 }
 
@@ -351,7 +427,9 @@ void UPointCloudSequenceComponent::LaunchPendingFrameLoad()
 	const uint64 RequestGeneration = SequenceGeneration;
 	const uint64 RequestId = ++NextLoadRequestId;
 
+	PendingLoadFrameIndex = INDEX_NONE;
 	ActiveLoadRequestId = RequestId;
+	ActiveLoadGeneration = RequestGeneration;
 	LoadingFrameIndex = FrameIndex;
 
 	TWeakObjectPtr<UPointCloudSequenceComponent> WeakThis(this);
@@ -380,27 +458,96 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 	}
 
 	ActiveLoadRequestId = 0;
+	ActiveLoadGeneration = 0;
 	LoadingFrameIndex = INDEX_NONE;
 
-	if (RequestGeneration == SequenceGeneration && PendingLoadFrameIndex == FrameIndex)
+	bool bLoadSucceeded = false;
+	if (RequestGeneration == SequenceGeneration)
 	{
 		if (Result.IsSuccess())
 		{
-			CurrentFrameData = MoveTemp(Result.FrameData);
-			LoadedFrameIndex = FrameIndex;
-			MarkRenderDynamicDataDirty(); // Notify the render thread about the new frame
+			bLoadSucceeded = true;
+			if (FrameIndex == CurrentFrameIndex)
+			{
+				ActivateFrame(FrameIndex, MoveTemp(Result.FrameData));
+			}
+			else if (IsFrameInBufferWindow(FrameIndex) && BufferedFrames.Num() < FrameBufferSize && !IsFrameBuffered(FrameIndex))
+			{
+				// Parsing is allowed to finish early. This data remains on the game
+				// side until the playback clock selects it for presentation.
+				FPCSBufferedFrame &BufferedFrame = BufferedFrames.AddDefaulted_GetRef();
+				BufferedFrame.FrameIndex = FrameIndex;
+				BufferedFrame.FrameData = MoveTemp(Result.FrameData);
+			}
 		}
 		else
 		{
 			UE_LOG(LogPCSComponent, Error, TEXT("Failed to load point-cloud frame %d: %s"), FrameIndex, *Result.ErrorMessage);
-			PendingLoadFrameIndex = INDEX_NONE;
 		}
 	}
 
-	if (PendingLoadFrameIndex != INDEX_NONE && PendingLoadFrameIndex != LoadedFrameIndex)
+	if (PendingLoadFrameIndex != INDEX_NONE)
 	{
 		LaunchPendingFrameLoad();
 	}
+	else if (bLoadSucceeded)
+	{
+		RequestNextFrameLoad();
+	}
+}
+
+void UPointCloudSequenceComponent::ActivateFrame(
+	int32 FrameIndex,
+	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData)
+{
+	check(IsInGameThread());
+	check(FrameData.IsValid());
+
+	CurrentFrameData = MoveTemp(FrameData);
+	LoadedFrameIndex = FrameIndex;
+	MarkRenderDynamicDataDirty();
+}
+
+bool UPointCloudSequenceComponent::TryActivateBufferedFrame(int32 FrameIndex)
+{
+	check(IsInGameThread());
+
+	const int32 BufferIndex = BufferedFrames.IndexOfByPredicate(
+		[FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
+	if (BufferIndex == INDEX_NONE || !BufferedFrames[BufferIndex].FrameData.IsValid())
+	{
+		return false;
+	}
+
+	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData = MoveTemp(BufferedFrames[BufferIndex].FrameData);
+	BufferedFrames.RemoveAt(BufferIndex);
+	ActivateFrame(FrameIndex, MoveTemp(FrameData));
+	return true;
+}
+
+bool UPointCloudSequenceComponent::IsFrameBuffered(int32 FrameIndex) const
+{
+	return BufferedFrames.ContainsByPredicate(
+		[FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
+}
+
+bool UPointCloudSequenceComponent::IsFrameInBufferWindow(int32 FrameIndex) const
+{
+	for (int32 Offset = 1; Offset <= FrameBufferSize; ++Offset)
+	{
+		const int32 Candidate = GetFollowingFrameIndex(CurrentFrameIndex, Offset);
+		if (Candidate == INDEX_NONE)
+		{
+			return false;
+		}
+
+		if (Candidate == FrameIndex)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void UPointCloudSequenceComponent::InvalidatePendingLoads()
@@ -408,6 +555,28 @@ void UPointCloudSequenceComponent::InvalidatePendingLoads()
 	check(IsInGameThread());
 	++SequenceGeneration;
 	PendingLoadFrameIndex = INDEX_NONE;
+}
+
+int32 UPointCloudSequenceComponent::GetFollowingFrameIndex(int32 FrameIndex, int32 Offset) const
+{
+	if (!SequenceFilePaths.IsValidIndex(FrameIndex) || FrameCount <= 1 || Offset <= 0)
+	{
+		return INDEX_NONE;
+	}
+
+	const int32 Candidate = FrameIndex + Offset;
+	if (Candidate < FrameCount)
+	{
+		return Candidate;
+	}
+
+	if (!bLoop)
+	{
+		return INDEX_NONE;
+	}
+
+	const int32 WrappedFrameIndex = Candidate % FrameCount;
+	return WrappedFrameIndex == FrameIndex ? INDEX_NONE : WrappedFrameIndex;
 }
 
 int32 UPointCloudSequenceComponent::ClampFrameIndex(int32 FrameIndex) const

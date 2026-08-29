@@ -6,6 +6,7 @@
 #include "HAL/PlatformTime.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "UObject/StrongObjectPtr.h"
 
@@ -53,24 +54,28 @@ bool FPCSPlyLoaderBinaryLittleEndianTest::RunTest(const FString &Parameters)
 class FPCSWaitForFolderFrameLoadCommand final : public IAutomationLatentCommand
 {
 public:
-	FPCSWaitForFolderFrameLoadCommand(TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent, FAutomationTestBase *InTest)
-		: Component(MoveTemp(InComponent)), Test(InTest), StartTime(FPlatformTime::Seconds())
+	FPCSWaitForFolderFrameLoadCommand(
+		TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent,
+		FAutomationTestBase *InTest,
+		FString InTemporaryDirectory)
+		: Component(MoveTemp(InComponent)), Test(InTest), TemporaryDirectory(MoveTemp(InTemporaryDirectory)), StartTime(FPlatformTime::Seconds())
 	{
 	}
 
 	virtual bool Update() override
 	{
-		if (Component->GetLoadedFrame() == 0)
+		if (Component->GetLoadedFrame() == 0 && Component->GetBufferedFrame() == 1)
 		{
-			Test->TestEqual(TEXT("Asynchronously loaded frame"), Component->GetLoadedFrame(), 0);
-			Component.Reset();
+			Test->TestEqual(TEXT("Asynchronously loaded current frame"), Component->GetLoadedFrame(), 0);
+			Test->TestEqual(TEXT("Immediately prefetched next frame"), Component->GetBufferedFrame(), 1);
+			Finish();
 			return true;
 		}
 
 		if (FPlatformTime::Seconds() - StartTime >= 5.0)
 		{
-			Test->AddError(TEXT("Timed out waiting for the component's asynchronous frame load."));
-			Component.Reset();
+			Test->AddError(TEXT("Timed out waiting for the component's current and prefetched frame loads."));
+			Finish();
 			return true;
 		}
 
@@ -78,8 +83,15 @@ public:
 	}
 
 private:
+	void Finish()
+	{
+		Component.Reset();
+		IFileManager::Get().DeleteDirectory(*TemporaryDirectory, false, true);
+	}
+
 	TStrongObjectPtr<UPointCloudSequenceComponent> Component;
 	FAutomationTestBase *Test = nullptr;
+	FString TemporaryDirectory;
 	double StartTime = 0.0;
 };
 
@@ -94,16 +106,36 @@ bool FPCSComponentFolderSequenceTest::RunTest(const FString &Parameters)
 		return false;
 	}
 
-	const FString FixtureDirectory = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Tests/Fixtures"));
-	const FString FileNameRegex = TEXT("^frame_(\\d+)_first_64\\.ply$");
+	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Tests/Fixtures/frame_000038_first_64.ply"));
+	const FString TemporaryDirectory = FPaths::Combine(
+		FPaths::ProjectIntermediateDir(),
+		TEXT("PCSAutomation"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+
+	if (!TestTrue(TEXT("Create temporary sequence directory"), IFileManager::Get().MakeDirectory(*TemporaryDirectory, true)))
+	{
+		return false;
+	}
+
+	const FString FirstFramePath = FPaths::Combine(TemporaryDirectory, TEXT("frame_000000.ply"));
+	const FString SecondFramePath = FPaths::Combine(TemporaryDirectory, TEXT("frame_000001.ply"));
+	if (!TestEqual(TEXT("Copy first fixture frame"), IFileManager::Get().Copy(*FirstFramePath, *FixturePath), COPY_OK) ||
+		!TestEqual(TEXT("Copy second fixture frame"), IFileManager::Get().Copy(*SecondFramePath, *FixturePath), COPY_OK))
+	{
+		IFileManager::Get().DeleteDirectory(*TemporaryDirectory, false, true);
+		return false;
+	}
+
+	const FString FileNameRegex = TEXT("^frame_(\\d+)\\.ply$");
 	TStrongObjectPtr<UPointCloudSequenceComponent> Component(NewObject<UPointCloudSequenceComponent>(GetTransientPackage()));
 
-	Component->SetSequenceSource(FixtureDirectory, FileNameRegex);
-	TestEqual(TEXT("Matching frame count"), Component->GetFrameCount(), 1);
-	TestEqual(TEXT("Configured directory"), Component->GetSequenceDirectory(), FixtureDirectory);
+	Component->SetSequenceSource(TemporaryDirectory, FileNameRegex);
+	TestEqual(TEXT("Matching frame count"), Component->GetFrameCount(), 2);
+	TestEqual(TEXT("Configured directory"), Component->GetSequenceDirectory(), TemporaryDirectory);
 	TestEqual(TEXT("Configured regex"), Component->GetFrameFileNameRegex(), FileNameRegex);
 
-	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), this));
+	FAutomationTestFramework::Get().EnqueueLatentCommand(
+		MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), this, TemporaryDirectory));
 	return true;
 }
 

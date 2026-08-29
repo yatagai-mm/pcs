@@ -94,6 +94,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
 	int32 GetLoadedFrame() const { return LoadedFrameIndex; }
 
+	// Returns the sequence index stored in the first parsed look-ahead slot, or INDEX_NONE when the buffer is empty.
+	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
+	int32 GetBufferedFrame() const;
+
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
 	double GetPlaybackTime() const { return PlaybackTimeSeconds; }
 
@@ -135,12 +139,27 @@ public:
 	float PointSize = 1.0f;
 
 private:
+	// Every frame index below is an ordinal position in SequenceFilePaths after
+	// sorting by the regex capture value. It is not necessarily the number written in the file name.
+	struct FPCSBufferedFrame
+	{
+		// Parsed look-ahead frame waiting for its presentation time. It is not displayed yet.
+		int32 FrameIndex = INDEX_NONE;
+		TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData;
+	};
+
 	void AdvancePlayback(float DeltaSeconds);
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
 	void RequestFrameLoad(int32 FrameIndex);
+	void RequestNextFrameLoad();
 	void LaunchPendingFrameLoad();
 	void HandleFrameLoadCompleted(uint64 RequestId, uint64 RequestGeneration, int32 FrameIndex, struct FPCSPlyLoadResult &&Result);
+	void ActivateFrame(int32 FrameIndex, TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData);
+	bool TryActivateBufferedFrame(int32 FrameIndex);
+	bool IsFrameBuffered(int32 FrameIndex) const;
+	bool IsFrameInBufferWindow(int32 FrameIndex) const;
 	void InvalidatePendingLoads();
+	int32 GetFollowingFrameIndex(int32 FrameIndex, int32 Offset) const;
 
 	/**
 	 * Clamps the given frame index to the valid range of [0, FrameCount - 1].
@@ -157,6 +176,7 @@ private:
 	// Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small.
 	double GetSequenceDuration() const;
 
+	// Frame selected by the playback clock. It may be ahead of the frame currently displayed while loading catches up.
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "Point Cloud Sequence|Playback")
 	int32 CurrentFrameIndex = 0;
 
@@ -173,11 +193,25 @@ private:
 	TArray<FString> SequenceFilePaths;
 	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> CurrentFrameData;
 
+	// Parsed future frames waiting for their presentation time.
+	// FrameBufferSize limits the number of elements; it is currently one.
+	TArray<FPCSBufferedFrame> BufferedFrames;
+	int32 FrameBufferSize = 1;
+
+	// Frame belonging to CurrentFrameData. It has been activated and sent toward
+	// the scene proxy. INDEX_NONE means no frame is ready yet.
 	int32 LoadedFrameIndex = INDEX_NONE;
+
+	// Frame currently being parsed by the active worker task.
+	// INDEX_NONE means that no PLY parse is running.
 	int32 LoadingFrameIndex = INDEX_NONE;
-	int32 PendingLoadFrameIndex = INDEX_NONE; // A single buffer for the next frame. New frame will replace this one
+
+	// Latest frame to load after the active worker task finishes.
+	// Newer playback requests replace this value. INDEX_NONE means no request is queued.
+	int32 PendingLoadFrameIndex = INDEX_NONE;
 
 	uint64 SequenceGeneration = 0;
 	uint64 NextLoadRequestId = 0;
 	uint64 ActiveLoadRequestId = 0;
+	uint64 ActiveLoadGeneration = 0;
 };
