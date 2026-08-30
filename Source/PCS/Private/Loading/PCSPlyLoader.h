@@ -7,7 +7,7 @@
 // Result of loading one PLY frame. Exactly one of FrameData and ErrorMessage is populated.
 struct FPCSPlyLoadResult
 {
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData;
+	TSharedPtr<const FPCSFrameData> FrameData;
 	FString ErrorMessage;
 
 	/**

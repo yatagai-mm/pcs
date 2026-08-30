@@ -9,9 +9,7 @@ FPCSSceneProxy::FPCSSceneProxy(const UPointCloudSequenceComponent *Component) : 
 	bWillEverBeLit = false;
 }
 
-void FPCSSceneProxy::SetFrameData_RenderThread(
-	int32 InFrameIndex,
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> InFrameData)
+void FPCSSceneProxy::SetFrameData_RenderThread(int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData)
 {
 	check(IsInRenderingThread());
 	FrameIndex = InFrameIndex;

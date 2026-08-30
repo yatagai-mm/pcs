@@ -145,7 +145,7 @@ private:
 	{
 		// Parsed look-ahead frame waiting for its presentation time. It is not displayed yet.
 		int32 FrameIndex = INDEX_NONE;
-		TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData;
+		TSharedPtr<const FPCSFrameData> FrameData;
 	};
 
 	void AdvancePlayback(float DeltaSeconds);
@@ -154,7 +154,7 @@ private:
 	void RequestNextFrameLoad();
 	void LaunchPendingFrameLoad();
 	void HandleFrameLoadCompleted(uint64 RequestId, uint64 RequestGeneration, int32 FrameIndex, struct FPCSPlyLoadResult &&Result);
-	void ActivateFrame(int32 FrameIndex, TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData);
+	void ActivateFrame(int32 FrameIndex, TSharedPtr<const FPCSFrameData> FrameData);
 	bool TryActivateBufferedFrame(int32 FrameIndex);
 	bool IsFrameBuffered(int32 FrameIndex) const;
 	bool IsFrameInBufferWindow(int32 FrameIndex) const;
@@ -191,7 +191,7 @@ private:
 	bool bPlaying = false;
 
 	TArray<FString> SequenceFilePaths;
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> CurrentFrameData;
+	TSharedPtr<const FPCSFrameData> CurrentFrameData;
 
 	// Parsed future frames waiting for their presentation time.
 	// FrameBufferSize limits the number of elements; it is currently one.

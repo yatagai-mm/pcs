@@ -369,7 +369,7 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 	const FPCSPlyProperty *BlueProperty = FindProperty(Header, TEXT("blue"));
 	const FPCSPlyProperty *AlphaProperty = FindProperty(Header, TEXT("alpha"));
 
-	TSharedRef<FPCSFrameData, ESPMode::ThreadSafe> MutableFrame = MakeShared<FPCSFrameData, ESPMode::ThreadSafe>();
+	TSharedRef<FPCSFrameData> MutableFrame = MakeShared<FPCSFrameData>();
 	MutableFrame->Vertices.SetNumUninitialized(static_cast<int32>(Header.VertexCount));
 
 	if (!FileHandle->Seek(Header.DataOffset))
@@ -395,8 +395,8 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
 			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
 			Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
-										   static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
-										   static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
+										static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
+										static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
 
 			if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
 			{

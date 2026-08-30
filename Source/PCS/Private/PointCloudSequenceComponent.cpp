@@ -48,7 +48,7 @@ void UPointCloudSequenceComponent::SendRenderDynamicData_Concurrent()
 	}
 
 	const int32 FrameIndex = LoadedFrameIndex;
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData = CurrentFrameData;
+	TSharedPtr<const FPCSFrameData> FrameData = CurrentFrameData;
 
 	ENQUEUE_RENDER_COMMAND(PCSSetFrameData)([PCSProxy, FrameIndex, FrameData = MoveTemp(FrameData)](FRHICommandListImmediate &) mutable
 											{ PCSProxy->SetFrameData_RenderThread(FrameIndex, MoveTemp(FrameData)); });
@@ -496,9 +496,7 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 	}
 }
 
-void UPointCloudSequenceComponent::ActivateFrame(
-	int32 FrameIndex,
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData)
+void UPointCloudSequenceComponent::ActivateFrame(int32 FrameIndex, TSharedPtr<const FPCSFrameData> FrameData)
 {
 	check(IsInGameThread());
 	check(FrameData.IsValid());
@@ -512,14 +510,14 @@ bool UPointCloudSequenceComponent::TryActivateBufferedFrame(int32 FrameIndex)
 {
 	check(IsInGameThread());
 
-	const int32 BufferIndex = BufferedFrames.IndexOfByPredicate(
-		[FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
+	const int32 BufferIndex =
+		BufferedFrames.IndexOfByPredicate([FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
 	if (BufferIndex == INDEX_NONE || !BufferedFrames[BufferIndex].FrameData.IsValid())
 	{
 		return false;
 	}
 
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData = MoveTemp(BufferedFrames[BufferIndex].FrameData);
+	TSharedPtr<const FPCSFrameData> FrameData = MoveTemp(BufferedFrames[BufferIndex].FrameData);
 	BufferedFrames.RemoveAt(BufferIndex);
 	ActivateFrame(FrameIndex, MoveTemp(FrameData));
 	return true;
@@ -527,8 +525,7 @@ bool UPointCloudSequenceComponent::TryActivateBufferedFrame(int32 FrameIndex)
 
 bool UPointCloudSequenceComponent::IsFrameBuffered(int32 FrameIndex) const
 {
-	return BufferedFrames.ContainsByPredicate(
-		[FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
+	return BufferedFrames.ContainsByPredicate([FrameIndex](const FPCSBufferedFrame &BufferedFrame) { return BufferedFrame.FrameIndex == FrameIndex; });
 }
 
 bool UPointCloudSequenceComponent::IsFrameInBufferWindow(int32 FrameIndex) const

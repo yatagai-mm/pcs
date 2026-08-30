@@ -18,9 +18,7 @@ class FPCSSceneProxy final : public FPrimitiveSceneProxy
 public:
 	explicit FPCSSceneProxy(const UPointCloudSequenceComponent *Component);
 
-	void SetFrameData_RenderThread(
-		int32 InFrameIndex,
-		TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> InFrameData);
+	void SetFrameData_RenderThread(int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData);
 
 	// Get an identifier for this class type
 	virtual SIZE_T GetTypeHash() const override;
@@ -32,6 +30,6 @@ public:
 	virtual uint32 GetMemoryFootprint() const override;
 
 private:
-	TSharedPtr<const FPCSFrameData, ESPMode::ThreadSafe> FrameData;
+	TSharedPtr<const FPCSFrameData> FrameData;
 	int32 FrameIndex = INDEX_NONE;
 };
