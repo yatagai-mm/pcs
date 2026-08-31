@@ -299,7 +299,7 @@ void UPointCloudSequenceComponent::AdvancePlayback(float DeltaSeconds)
 
 	PlaybackTimeSeconds = NewTime;
 	const int32 DesiredFrame = FMath::FloorToInt(PlaybackTimeSeconds * GetSafeFrameRate());
-	SetCurrentFrameInternal(ClampFrameIndex(DesiredFrame));
+	SetCurrentFrameInternal(DesiredFrame);
 
 	if (bReachedEnd)
 	{
@@ -477,7 +477,7 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 				// side until the playback clock selects it for presentation.
 				FPCSBufferedFrame &BufferedFrame = BufferedFrames.AddDefaulted_GetRef();
 				BufferedFrame.FrameIndex = FrameIndex;
-				BufferedFrame.FrameData = MoveTemp(Result.FrameData);
+				BufferedFrame.FrameData = MoveTemp(Result.FrameData); // Only store reference to the frame data
 			}
 		}
 		else
@@ -488,6 +488,7 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 
 	if (PendingLoadFrameIndex != INDEX_NONE)
 	{
+		// Start the next load
 		LaunchPendingFrameLoad();
 	}
 	else if (bLoadSucceeded)
@@ -503,6 +504,7 @@ void UPointCloudSequenceComponent::ActivateFrame(int32 FrameIndex, TSharedPtr<co
 
 	CurrentFrameData = MoveTemp(FrameData);
 	LoadedFrameIndex = FrameIndex;
+	// Notify the render thread of the new frame
 	MarkRenderDynamicDataDirty();
 }
 
