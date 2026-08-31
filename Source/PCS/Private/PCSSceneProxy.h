@@ -5,14 +5,12 @@
 struct FPCSFrameData;
 class UPointCloudSequenceComponent;
 
-/**
- * Render-thread representation of UPointCloudSequenceComponent.
- *
- * The proxy must not read the component after construction because the
- * component belongs to the game thread.
- *
- * The users of this plugin are also not expected to access this proxy directly.
- */
+// Render-thread representation of UPointCloudSequenceComponent.
+//
+// The proxy must not read the component after construction because the
+// component belongs to the game thread.
+//
+// The users of this plugin are also not expected to access this proxy directly.
 class FPCSSceneProxy final : public FPrimitiveSceneProxy
 {
 public:

@@ -2,10 +2,8 @@
 
 #include "CoreMinimal.h"
 
-/**
- * One point in the exact interleaved layout uploaded to the GPU.
- * Positions remain in the units stored in the PLY file.
- */
+// One point in the exact interleaved layout uploaded to the GPU.
+// Positions remain in the units stored in the PLY file.
 struct FPCSPointVertex
 {
 	FVector3f Position = FVector3f::ZeroVector;

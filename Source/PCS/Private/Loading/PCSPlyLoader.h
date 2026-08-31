@@ -10,10 +10,8 @@ struct FPCSPlyLoadResult
 	TSharedPtr<const FPCSFrameData> FrameData;
 	FString ErrorMessage;
 
-	/**
-	 * Returns true if the PLY frame was successfully loaded and FrameData is valid.
-	 * Otherwise, returns false and ErrorMessage contains a description of the failure.
-	 */
+	// Returns true if the PLY frame was successfully loaded and FrameData is valid.
+	// Otherwise, returns false and ErrorMessage contains a description of the failure.
 	[[nodiscard]]
 	bool IsSuccess() const
 	{
@@ -21,13 +19,11 @@ struct FPCSPlyLoadResult
 	}
 };
 
-/**
- * Synchronous PLY decoder.
- *
- * The loader does not access UObjects and is intended to be called from a
- * worker task (inside UE::Tasks::Launch bracket).
- * This supports scalar vertex properties in binary little-endian PLY 1.0 files.
- */
+// Synchronous PLY decoder.
+//
+// The loader does not access UObjects and is intended to be called from a
+// worker task (inside UE::Tasks::Launch bracket).
+// This supports scalar vertex properties in binary little-endian PLY 1.0 files.
 class FPCSPlyLoader final
 {
 public:

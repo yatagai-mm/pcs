@@ -12,13 +12,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSFrameChangedSignature, int32, P
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
 
-/**
- * Game-thread-facing playback component for a point-cloud frame sequence.
- *
- * This class owns playback state, discovers the source sequence, and coordinates
- * asynchronous PLY loading. Render-thread state and GPU resources remain in the
- * scene proxy.
- */
+// Game-thread-facing playback component for a point-cloud frame sequence.
+//
+// This class owns playback state, discovers the source sequence, and coordinates
+// asynchronous PLY loading. Render-thread state and GPU resources remain in the
+// scene proxy.
 UCLASS(BlueprintType, ClassGroup = (PCS), meta = (BlueprintSpawnableComponent, DisplayName = "Point Cloud Sequence"))
 class PCS_API UPointCloudSequenceComponent final : public UPrimitiveComponent
 {
@@ -59,14 +57,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
 	void SetSequenceDirectory(const FString &Directory);
 
-	/**
-	 * Changes both source inputs and rescans the directory. Capture group 1 of
-	 * FileNameRegex must contain the integer sequence number.
-	 */
+	// Changes both source inputs and rescans the directory. Capture group 1 of
+	// FileNameRegex must contain the integer sequence number.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
 	void SetSequenceSource(const FString &Directory, const FString &FileNameRegex);
 
-	/** Rescans the configured directory and requests the first matching frame. */
+	// Rescans the configured directory and requests the first matching frame.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Source")
 	bool RefreshSequence();
 
@@ -76,10 +72,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Source")
 	FString GetFrameFileNameRegex() const { return FrameFileNameRegex; }
 
-	/**
-	 * Publishes the number of frames discovered by a loader.
-	 * This must be called on the game thread after asynchronous discovery completes.
-	 */
+	// Publishes the number of frames discovered by a loader.
+	// This must be called on the game thread after asynchronous discovery completes.
 	void SetFrameCount(int32 InFrameCount);
 
 	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
@@ -113,10 +107,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Source")
 	FDirectoryPath SequenceDirectory;
 
-	/**
-	 * Full-file-name regular expression. Capture group 1 is parsed as the sequence
-	 * number used to order matching files.
-	 */
+	// Full-file-name regular expression. Capture group 1 is parsed as the sequence
+	// number used to order matching files.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Source")
 	FString FrameFileNameRegex = TEXT("^frame_(\\d+)\\.ply$");
 
@@ -161,16 +153,12 @@ private:
 	void InvalidatePendingLoads();
 	int32 GetFollowingFrameIndex(int32 FrameIndex, int32 Offset) const;
 
-	/**
-	 * Clamps the given frame index to the valid range of [0, FrameCount - 1].
-	 * SeekFrame is BlueprintCallable, so this method is necessary to ensure that the frame index is always valid.
-	 */
+	// Clamps the given frame index to the valid range of [0, FrameCount - 1].
+	// SeekFrame is BlueprintCallable, so this method is necessary to ensure that the frame index is always valid.
 	int32 ClampFrameIndex(int32 FrameIndex) const;
 
-	/**
-	 * Returns the "safe" frame rate.
-	 * This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint.
-	 */
+	// Returns the "safe" frame rate.
+	// This method is necessary because FrameRate can be edited anywhere including the editor or the blueprint.
 	float GetSafeFrameRate() const;
 
 	// Use double for returned value to avoid overflow when FrameCount is large and FrameRate is small.

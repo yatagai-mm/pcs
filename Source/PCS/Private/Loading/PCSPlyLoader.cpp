@@ -172,13 +172,11 @@ int32 FindHeaderDataOffset(const TArray<uint8> &Bytes)
 	return INDEX_NONE;
 }
 
-/*
- * Parse PLY header from HeaderBytes until DataOffset.
- * If successful, OutHeader is populated and the function returns true.
- * Otherwise, OutError contains a description of the failure and the function returns false.
- *
- * This parser only reads the format, element and property lines
- */
+// Parse PLY header from HeaderBytes until DataOffset.
+// If successful, OutHeader is populated and the function returns true.
+// Otherwise, OutError contains a description of the failure and the function returns false.
+//
+// This parser only reads the format, element and property lines
 bool ParseHeader(const TArray<uint8> &HeaderBytes, int32 DataOffset, FPCSPlyHeader &OutHeader, FString &OutError)
 {
 	FString HeaderText;
