@@ -10,7 +10,7 @@
 		{
 			"Name": "PCS",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "PostConfigInit"
 		}
 	]
 }
