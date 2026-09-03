@@ -1,3 +1,5 @@
+// QuadIndexBuffer and PointVertexBuffer are shared among all points in a frame, only require 44B combined among all frames.
+
 #pragma once
 
 #include "CoreMinimal.h"

@@ -53,6 +53,7 @@ void FPCSPointVertexBuffer::InitRHI(FRHICommandListBase &RHICmdList)
 	check(NumPoints > 0);
 
 	const FRHIBufferCreateDesc CreateDesc = FRHIBufferCreateDesc::CreateVertex<FPCSPointVertex>(TEXT("PCS.PointFrame"), NumPoints)
+												// Buffer can be immutable here because FrameResources is recreated for every frame
 												.AddUsage(EBufferUsageFlags::Static)
 												.SetInitialState(ERHIAccess::VertexOrIndexBuffer)
 												.SetInitActionInitializer();
