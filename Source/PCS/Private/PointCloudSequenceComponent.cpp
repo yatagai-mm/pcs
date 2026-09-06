@@ -4,6 +4,8 @@
 #include "HAL/FileManager.h"
 #include "Internationalization/Regex.h"
 #include "Loading/PCSPlyLoader.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInterface.h"
 #include "Math/UnrealMathUtility.h"
 #include "Misc/Paths.h"
 #include "PCSSceneProxy.h"
@@ -26,6 +28,7 @@ UPointCloudSequenceComponent::UPointCloudSequenceComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 	BufferedFrames.Reserve(FrameBufferSize);
+	PointMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/PCS/Materials/M_PCSDefault.M_PCSDefault"));
 
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SetGenerateOverlapEvents(false);
@@ -35,6 +38,21 @@ FPrimitiveSceneProxy *UPointCloudSequenceComponent::CreateSceneProxy()
 {
 	check(IsInGameThread());
 	return new FPCSSceneProxy(this);
+}
+
+void UPointCloudSequenceComponent::GetUsedMaterials(TArray<UMaterialInterface *> &OutMaterials, bool bGetDebugMaterials) const
+{
+	Super::GetUsedMaterials(OutMaterials, bGetDebugMaterials);
+
+	// FPrimitiveSceneProxy validates every submitted mesh material against this
+	// list before it lets the render thread consume the mesh batch.
+	if (PointMaterial != nullptr)
+	{
+		OutMaterials.AddUnique(PointMaterial);
+	}
+	// The proxy falls back to this material when a user-supplied material was not
+	// compiled for point clouds, so it must also be declared to the renderer.
+	OutMaterials.AddUnique(UMaterial::GetDefaultMaterial(MD_Surface));
 }
 
 FBoxSphereBounds UPointCloudSequenceComponent::CalcBounds(const FTransform &LocalToWorld) const
@@ -524,6 +542,7 @@ void UPointCloudSequenceComponent::ActivateFrame(int32 FrameIndex, TSharedPtr<co
 
 	CurrentFrameData = MoveTemp(FrameData);
 	LoadedFrameIndex = FrameIndex;
+	UE_LOG(LogPCSComponent, Verbose, TEXT("Activated point-cloud frame %d with %d points."), FrameIndex, CurrentFrameData->Vertices.Num());
 	UpdateBounds();
 	MarkRenderTransformDirty();
 	// Notify the render thread of the new frame

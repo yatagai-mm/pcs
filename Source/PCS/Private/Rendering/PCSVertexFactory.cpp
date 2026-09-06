@@ -57,10 +57,11 @@ FPCSVertexFactory::FPCSVertexFactory(ERHIFeatureLevel::Type InFeatureLevel, cons
 
 bool FPCSVertexFactory::ShouldCompilePermutation(const FVertexFactoryShaderPermutationParameters &Parameters)
 {
-	// Until PCS owns a dedicated material usage flag, limit shader permutations to default materials instead of compiling this vertex factory for
-	// every surface material in the project.
+	// UE has no plugin-defined material usage bits. Reuse its point-cloud usage
+	// bit so only explicitly compatible materials compile PCS permutations.
 	return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5) && Parameters.MaterialParameters.MaterialDomain == MD_Surface &&
-		   (Parameters.MaterialParameters.bIsDefaultMaterial || Parameters.MaterialParameters.bIsSpecialEngineMaterial);
+		   (Parameters.MaterialParameters.bIsUsedWithLidarPointCloud || Parameters.MaterialParameters.bIsDefaultMaterial ||
+			Parameters.MaterialParameters.bIsSpecialEngineMaterial);
 }
 
 void FPCSVertexFactory::ModifyCompilationEnvironment(const FVertexFactoryShaderPermutationParameters &, FShaderCompilerEnvironment &OutEnvironment)

@@ -18,6 +18,7 @@ class FPCSSceneProxy final : public FPrimitiveSceneProxy
 public:
 	explicit FPCSSceneProxy(const UPointCloudSequenceComponent *Component);
 	virtual ~FPCSSceneProxy() override;
+	virtual void CreateRenderThreadResources(FRHICommandListBase &RHICmdList) override;
 
 	void SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData, float InPointSizePixels);
 
@@ -35,6 +36,10 @@ private:
 
 	// Pointer reference for GPU processingto the frame data received from the game thread
 	TUniquePtr<FPCSFrameRenderResources> FrameResources;
+	// Snapshot copied while the proxy is constructed on the game thread. UE can
+	// recreate a proxy after a bounds change, so the replacement must be able to
+	// restore the already active frame without waiting for another PLY change.
+	TSharedPtr<const FPCSFrameData> InitialFrameData;
 	const FMaterialRenderProxy *MaterialRenderProxy = nullptr;
 	FMaterialRelevance MaterialRelevance;
 	int32 FrameIndex = INDEX_NONE;

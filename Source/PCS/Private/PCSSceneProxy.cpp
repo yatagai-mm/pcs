@@ -7,6 +7,8 @@
 #include "PointCloudSequenceComponent.h"
 #include "Rendering/PCSRenderResources.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogPCSSceneProxy, Log, All);
+
 namespace
 {
 // UserData stored by FMeshBatchElement must remain alive until this view's
@@ -22,15 +24,34 @@ FPCSSceneProxy::FPCSSceneProxy(const UPointCloudSequenceComponent *Component) : 
 {
 	check(IsInGameThread());
 	PointSizePixels = FMath::Max(Component->PointSize, 0.0f);
+	FrameIndex = Component->LoadedFrameIndex;
+	InitialFrameData = Component->CurrentFrameData;
 
-	// TODO: Custom material support at some point? if needed
-	const UMaterialInterface *Material = UMaterial::GetDefaultMaterial(MD_Surface);
+	// The component retains the UObject on the game thread. The scene proxy keeps
+	// only the render-thread-safe proxy selected while it is being constructed.
+	const UMaterialInterface *Material = Component->PointMaterial;
+	const bool bMaterialSupportsPointCloud = Material != nullptr && Material->CheckMaterialUsage_Concurrent(MATUSAGE_LidarPointCloud);
+	if (!bMaterialSupportsPointCloud)
+	{
+		Material = UMaterial::GetDefaultMaterial(MD_Surface);
+	}
+	UE_LOG(LogPCSSceneProxy, Verbose, TEXT("Using material '%s' (point-cloud usage: %s)."), *GetNameSafe(Material),
+		   bMaterialSupportsPointCloud ? TEXT("yes") : TEXT("no; using fallback"));
 	MaterialRenderProxy = Material->GetRenderProxy();
 	MaterialRelevance = Material->GetRelevance_Concurrent(GetScene().GetShaderPlatform());
 	bWillEverBeLit = false;
 }
 
 FPCSSceneProxy::~FPCSSceneProxy() { ReleaseFrameResources_RenderThread(); }
+
+void FPCSSceneProxy::CreateRenderThreadResources(FRHICommandListBase &RHICmdList)
+{
+	check(IsInRenderingThread());
+	if (InitialFrameData.IsValid())
+	{
+		SetFrameData_RenderThread(RHICmdList, FrameIndex, MoveTemp(InitialFrameData), PointSizePixels);
+	}
+}
 
 // Called by MarkRenderDynamicDataDirty() from the game thread.
 void FPCSSceneProxy::SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData,
@@ -52,6 +73,7 @@ void FPCSSceneProxy::SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, 
 	// GetFeatureLevel tells VertexFactory and shader about kinds of rendering feature supported by the current platform.
 	FrameResources = MakeUnique<FPCSFrameRenderResources>(GetScene().GetFeatureLevel(), MoveTemp(InFrameData));
 	FrameResources->InitResources(RHICmdList);
+	UE_LOG(LogPCSSceneProxy, Verbose, TEXT("Uploaded frame %d with %u points."), FrameIndex, FrameResources->GetNumPoints());
 }
 
 // Release reference to the FrameResources
@@ -59,7 +81,9 @@ void FPCSSceneProxy::ReleaseFrameResources_RenderThread()
 {
 	if (FrameResources.IsValid())
 	{
-		check(IsInRenderingThread());
+		// UE 5.8 may destroy scene proxies from a parallel rendering task while
+		// applying a scene update, not exclusively from the named Render Thread.
+		check(IsInRenderingThread() || IsInParallelRenderingThread());
 		FrameResources->ReleaseResources();
 		FrameResources.Reset();
 	}

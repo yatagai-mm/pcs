@@ -88,7 +88,7 @@ void FPCSFrameRenderResources::InitResources(FRHICommandListBase &RHICmdList)
 
 void FPCSFrameRenderResources::ReleaseResources()
 {
-	check(IsInRenderingThread());
+	check(IsInRenderingThread() || IsInParallelRenderingThread());
 
 	// Release the declaration first because it references streams backed by the
 	// frame vertex buffer.

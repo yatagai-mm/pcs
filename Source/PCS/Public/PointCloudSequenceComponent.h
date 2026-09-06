@@ -7,6 +7,7 @@
 #include "PointCloudSequenceComponent.generated.h"
 
 struct FPCSFrameData;
+class UMaterialInterface;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSFrameChangedSignature, int32, PreviousFrameIndex, int32, CurrentFrameIndex);
 
@@ -27,6 +28,7 @@ public:
 
 	virtual FPrimitiveSceneProxy *CreateSceneProxy() override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform &LocalToWorld) const override;
+	virtual void GetUsedMaterials(TArray<UMaterialInterface *> &OutMaterials, bool bGetDebugMaterials = false) const override;
 	virtual void SendRenderDynamicData_Concurrent() override;
 
 	virtual void BeginPlay() override;
@@ -131,7 +133,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float PointSize = 1.0f;
 
+	// Surface material used to shade every point quad. The PCS default material
+	// is unlit and forwards each PLY vertex color to Emissive Color.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering")
+	TObjectPtr<UMaterialInterface> PointMaterial;
+
 private:
+	friend class FPCSSceneProxy;
+
 	// Every frame index below is an ordinal position in SequenceFilePaths after
 	// sorting by the regex capture value. It is not necessarily the number written in the file name.
 	struct FPCSBufferedFrame
