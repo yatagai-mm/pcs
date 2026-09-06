@@ -3,6 +3,8 @@
 #include "PrimitiveSceneProxy.h"
 
 struct FPCSFrameData;
+class FPCSFrameRenderResources;
+class FMaterialRenderProxy;
 class UPointCloudSequenceComponent;
 
 // Render-thread representation of UPointCloudSequenceComponent.
@@ -15,8 +17,9 @@ class FPCSSceneProxy final : public FPrimitiveSceneProxy
 {
 public:
 	explicit FPCSSceneProxy(const UPointCloudSequenceComponent *Component);
+	virtual ~FPCSSceneProxy() override;
 
-	void SetFrameData_RenderThread(int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData);
+	void SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData, float InPointSizePixels);
 
 	// Get an identifier for this class type
 	virtual SIZE_T GetTypeHash() const override;
@@ -28,6 +31,12 @@ public:
 	virtual uint32 GetMemoryFootprint() const override;
 
 private:
-	TSharedPtr<const FPCSFrameData> FrameData;
+	void ReleaseFrameResources_RenderThread();
+
+	// Pointer reference for GPU processingto the frame data received from the game thread
+	TUniquePtr<FPCSFrameRenderResources> FrameResources;
+	const FMaterialRenderProxy *MaterialRenderProxy = nullptr;
+	FMaterialRelevance MaterialRelevance;
 	int32 FrameIndex = INDEX_NONE;
+	float PointSizePixels = 1.0f;
 };
