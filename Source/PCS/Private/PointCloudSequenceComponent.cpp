@@ -37,6 +37,20 @@ FPrimitiveSceneProxy *UPointCloudSequenceComponent::CreateSceneProxy()
 	return new FPCSSceneProxy(this);
 }
 
+FBoxSphereBounds UPointCloudSequenceComponent::CalcBounds(const FTransform &LocalToWorld) const
+{
+	if (!CurrentFrameData.IsValid() || !CurrentFrameData->Bounds.IsValid)
+	{
+		return Super::CalcBounds(LocalToWorld);
+	}
+
+	// The SceneProxy is culled before its vertex shader runs. Supplying the
+	// decoded point-center bounds here prevents a zero-sized component at the
+	// actor origin from hiding a cloud located elsewhere in local space.
+	const FBox LocalBounds(FVector(CurrentFrameData->Bounds.Min), FVector(CurrentFrameData->Bounds.Max));
+	return FBoxSphereBounds(LocalBounds).TransformBy(LocalToWorld);
+}
+
 void UPointCloudSequenceComponent::SendRenderDynamicData_Concurrent()
 {
 	Super::SendRenderDynamicData_Concurrent();
@@ -49,9 +63,11 @@ void UPointCloudSequenceComponent::SendRenderDynamicData_Concurrent()
 
 	const int32 FrameIndex = LoadedFrameIndex;
 	TSharedPtr<const FPCSFrameData> FrameData = CurrentFrameData;
+	const float PointSizePixels = PointSize;
 
-	ENQUEUE_RENDER_COMMAND(PCSSetFrameData)([PCSProxy, FrameIndex, FrameData = MoveTemp(FrameData)](FRHICommandListImmediate &) mutable
-											{ PCSProxy->SetFrameData_RenderThread(FrameIndex, MoveTemp(FrameData)); });
+	ENQUEUE_RENDER_COMMAND(PCSSetFrameData)(
+		[PCSProxy, FrameIndex, FrameData = MoveTemp(FrameData), PointSizePixels](FRHICommandListImmediate &RHICmdList) mutable
+		{ PCSProxy->SetFrameData_RenderThread(RHICmdList, FrameIndex, MoveTemp(FrameData), PointSizePixels); });
 }
 
 void UPointCloudSequenceComponent::BeginPlay()
@@ -165,6 +181,8 @@ bool UPointCloudSequenceComponent::RefreshSequence()
 	LoadedFrameIndex = INDEX_NONE;
 	CurrentFrameData.Reset();
 	BufferedFrames.Reset();
+	UpdateBounds();
+	MarkRenderTransformDirty();
 	MarkRenderDynamicDataDirty();
 
 	if (SequenceDirectory.Path.IsEmpty() || FrameFileNameRegex.IsEmpty())
@@ -330,6 +348,8 @@ void UPointCloudSequenceComponent::SetCurrentFrameInternal(int32 NewFrameIndex)
 
 	if (!TryActivateBufferedFrame(CurrentFrameIndex) && LoadedFrameIndex != CurrentFrameIndex)
 	{
+		// If the current frame is not already loaded nor buffered (fps seek or parsing delay), request it immediately.
+		// This does not guarantee that the frame will be loaded before the next tick, but it will be prioritized over any prefetching.
 		RequestFrameLoad(CurrentFrameIndex);
 	}
 	else
@@ -354,6 +374,7 @@ void UPointCloudSequenceComponent::RequestFrameLoad(int32 FrameIndex)
 
 	if (LoadedFrameIndex == FrameIndex || IsFrameBuffered(FrameIndex))
 	{
+		// If the requested frame is already loaded or buffered, cancel any pending load for that frame.
 		if (PendingLoadFrameIndex == FrameIndex)
 		{
 			PendingLoadFrameIndex = INDEX_NONE;
@@ -363,8 +384,7 @@ void UPointCloudSequenceComponent::RequestFrameLoad(int32 FrameIndex)
 
 	if (LoadingFrameIndex == FrameIndex && ActiveLoadGeneration == SequenceGeneration)
 	{
-		// The active load is once again the most relevant request. Discard a
-		// newer request that may have been queued by a transient seek.
+		// If already loading the requested frame and the sequence has not changed, do nothing.
 		PendingLoadFrameIndex = INDEX_NONE;
 		return;
 	}
@@ -469,12 +489,12 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 			bLoadSucceeded = true;
 			if (FrameIndex == CurrentFrameIndex)
 			{
+				// Immediately activate the frame if it's the current playback target.
 				ActivateFrame(FrameIndex, MoveTemp(Result.FrameData));
 			}
 			else if (IsFrameInBufferWindow(FrameIndex) && BufferedFrames.Num() < FrameBufferSize && !IsFrameBuffered(FrameIndex))
 			{
-				// Parsing is allowed to finish early. This data remains on the game
-				// side until the playback clock selects it for presentation.
+				// Buffer pre-parsed frames only if BufferedFrames has room and the frame is still within the look-ahead window.
 				FPCSBufferedFrame &BufferedFrame = BufferedFrames.AddDefaulted_GetRef();
 				BufferedFrame.FrameIndex = FrameIndex;
 				BufferedFrame.FrameData = MoveTemp(Result.FrameData); // Only store reference to the frame data
@@ -504,6 +524,8 @@ void UPointCloudSequenceComponent::ActivateFrame(int32 FrameIndex, TSharedPtr<co
 
 	CurrentFrameData = MoveTemp(FrameData);
 	LoadedFrameIndex = FrameIndex;
+	UpdateBounds();
+	MarkRenderTransformDirty();
 	// Notify the render thread of the new frame
 	MarkRenderDynamicDataDirty();
 }

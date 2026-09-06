@@ -1,0 +1,210 @@
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/VertexFactoryCommon.ush"
+
+// Loose, per-view parameters bound by FPCSVertexFactoryShaderParameters.
+float3 PCSViewRight;
+float3 PCSViewUp;
+float PCSPointSizePixels;
+
+struct FVertexFactoryInput
+{
+	float2 QuadCorner : ATTRIBUTE0;
+	float3 PointPosition : ATTRIBUTE1;
+	half4 PointColor : ATTRIBUTE2;
+
+	VF_INSTANCED_STEREO_DECLARE_INPUT_BLOCK()
+	VF_MOBILE_MULTI_VIEW_DECLARE_INPUT_BLOCK()
+};
+
+struct FVertexFactoryIntermediates
+{
+	float2 QuadCorner;
+	float3 PointPosition;
+	half4 Color;
+	half3x3 TangentToWorld;
+	FSceneDataIntermediates SceneData;
+};
+
+FPrimitiveSceneData GetPrimitiveData(FVertexFactoryIntermediates Intermediates)
+{
+	return Intermediates.SceneData.Primitive;
+}
+
+struct FVertexFactoryInterpolantsVSToPS
+{
+	TANGENTTOWORLD_INTERPOLATOR_BLOCK
+	half4 Color : COLOR0;
+	float2 TexCoords : TEXCOORD0;
+};
+
+FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput Input)
+{
+	FVertexFactoryIntermediates Intermediates = (FVertexFactoryIntermediates)0;
+	Intermediates.SceneData = VF_GPUSCENE_GET_INTERMEDIATES(Input);
+	Intermediates.QuadCorner = Input.QuadCorner;
+	Intermediates.PointPosition = Input.PointPosition;
+	Intermediates.Color = Input.PointColor;
+
+	// PCSViewRight and PCSViewUp are already World-space unit vectors. Keeping
+	// this basis in World space lets the shader face every quad toward this view
+	// without generating or uploading four World positions for every point.
+	Intermediates.TangentToWorld[0] = normalize(PCSViewRight);
+	Intermediates.TangentToWorld[1] = normalize(PCSViewUp);
+	Intermediates.TangentToWorld[2] = normalize(cross(PCSViewRight, PCSViewUp));
+	return Intermediates;
+}
+
+float3 VertexFactoryGetPreviousInstanceSpacePosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates);
+float3 VertexFactoryGetInstanceSpacePosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates);
+
+FMaterialVertexParameters GetMaterialVertexParameters(
+	FVertexFactoryInput Input,
+	FVertexFactoryIntermediates Intermediates,
+	float3 WorldPosition,
+	half3x3 TangentToLocal,
+	bool bIsPreviousFrame = false)
+{
+	FMaterialVertexParameters Result = MakeInitializedMaterialVertexParameters();
+	Result.SceneData = Intermediates.SceneData;
+	Result.WorldPosition = WorldPosition;
+	Result.PositionInstanceSpace = bIsPreviousFrame
+		? VertexFactoryGetPreviousInstanceSpacePosition(Input, Intermediates)
+		: VertexFactoryGetInstanceSpacePosition(Input, Intermediates);
+	Result.PositionPrimitiveSpace = Result.PositionInstanceSpace;
+	Result.TangentToWorld = Intermediates.TangentToWorld;
+	Result.PreSkinnedNormal = TangentToLocal[2];
+	Result.PreSkinnedPosition = WorldPosition;
+	Result.VertexColor = Intermediates.Color;
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	// Convert the signed corner range [-0.5, 0.5] to a conventional UV range.
+	Result.TexCoords[0] = float2(Input.QuadCorner.x + 0.5f, 0.5f - Input.QuadCorner.y);
+#endif
+
+	Result.LWCData = MakeMaterialLWCData(Result);
+	return Result;
+}
+
+// Returns UE's translated World position. The PreViewTranslation used by UE's
+// Large World Coordinates system has already been applied to the point center.
+float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	float4 CenterWorld = TransformLocalToTranslatedWorld(
+		Intermediates.PointPosition,
+		Intermediates.SceneData.Primitive.LocalToWorld);
+
+	const float ViewDepth = max(
+		dot(CenterWorld.xyz - ResolvedView.TranslatedWorldCameraOrigin, ResolvedView.ViewForward),
+		0.0f);
+
+	// In a perspective projection, 2 * depth / projection-scale is the World
+	// width or height visible at that depth. Dividing by the viewport dimension
+	// therefore gives an exact World-units-per-pixel scale. Orthographic
+	// projection has no depth scaling, which is selected through ViewToClip.w.
+	const bool bPerspective = abs(ResolvedView.ViewToClip[3][3]) < 0.5f;
+	const float ProjectionDepth = bPerspective ? ViewDepth : 1.0f;
+	const float2 ProjectionScale = max(abs(float2(
+		ResolvedView.ViewToClip[0][0],
+		ResolvedView.ViewToClip[1][1])), 1.0e-6f);
+	const float2 WorldUnitsPerPixel =
+		2.0f * ProjectionDepth * rcp(ProjectionScale) * View.ViewSizeAndInvSize.zw;
+
+	const float2 CornerWorldOffset =
+		Intermediates.QuadCorner * max(PCSPointSizePixels, 0.0f) * WorldUnitsPerPixel;
+	CenterWorld.xyz += Intermediates.TangentToWorld[0] * CornerWorldOffset.x;
+	CenterWorld.xyz += Intermediates.TangentToWorld[1] * CornerWorldOffset.y;
+	return CenterWorld;
+}
+
+float3 VertexFactoryGetInstanceSpacePosition(FVertexFactoryInput, FVertexFactoryIntermediates Intermediates)
+{
+	// PCS uses hardware instancing only as a compact point lookup. In UE's
+	// transform hierarchy every point still belongs to the same primitive.
+	return Intermediates.PointPosition;
+}
+
+float4 VertexFactoryGetRasterizedWorldPosition(
+	FVertexFactoryInput,
+	FVertexFactoryIntermediates,
+	float4 InWorldPosition)
+{
+	return InWorldPosition;
+}
+
+float3 VertexFactoryGetPositionForVertexLighting(
+	FVertexFactoryInput,
+	FVertexFactoryIntermediates,
+	float3 TranslatedWorldPosition)
+{
+	return TranslatedWorldPosition;
+}
+
+float3 VertexFactoryGetWorldNormal(FVertexFactoryInput, FVertexFactoryIntermediates Intermediates)
+{
+	return Intermediates.TangentToWorld[2];
+}
+
+half3x3 VertexFactoryGetTangentToLocal(FVertexFactoryInput, FVertexFactoryIntermediates)
+{
+	// Point records have no source normal or tangent. The World-facing basis is
+	// supplied separately in Intermediates.TangentToWorld.
+	return half3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+}
+
+float4 VertexFactoryGetPreviousWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	// A decoded frame currently has no per-point motion vectors. Returning the
+	// current expanded position prevents unrelated points in consecutive frames
+	// from producing invalid velocity vectors.
+	return VertexFactoryGetWorldPosition(Input, Intermediates);
+}
+
+float3 VertexFactoryGetPreviousInstanceSpacePosition(FVertexFactoryInput, FVertexFactoryIntermediates Intermediates)
+{
+	return Intermediates.PointPosition;
+}
+
+FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(
+	FVertexFactoryInput Input,
+	FVertexFactoryIntermediates Intermediates,
+	FMaterialVertexParameters VertexParameters)
+{
+	FVertexFactoryInterpolantsVSToPS Interpolants = (FVertexFactoryInterpolantsVSToPS)0;
+	Interpolants.TangentToWorld0 = float4(Intermediates.TangentToWorld[0], 0.0f);
+	Interpolants.TangentToWorld2 = float4(Intermediates.TangentToWorld[2], 1.0f);
+	Interpolants.Color = VertexParameters.VertexColor;
+	Interpolants.TexCoords = float2(Input.QuadCorner.x + 0.5f, 0.5f - Input.QuadCorner.y);
+	return Interpolants;
+}
+
+FMaterialPixelParameters GetMaterialPixelParameters(FVertexFactoryInterpolantsVSToPS Interpolants, float4 SvPosition)
+{
+	FMaterialPixelParameters Result = MakeInitializedMaterialPixelParameters();
+	Result.VertexColor = Interpolants.Color;
+	Result.TwoSidedSign = 1.0f;
+	Result.UnMirrored = Interpolants.TangentToWorld2.w;
+	Result.TangentToWorld = AssembleTangentToWorld(
+		Interpolants.TangentToWorld0.xyz,
+		Interpolants.TangentToWorld2);
+
+#if NUM_TEX_COORD_INTERPOLATORS
+	Result.TexCoords[0] = Interpolants.TexCoords;
+#endif
+
+	return Result;
+}
+
+float4 VertexFactoryGetTranslatedPrimitiveVolumeBounds(FVertexFactoryInterpolantsVSToPS)
+{
+	FPrimitiveSceneData PrimitiveData = GetPrimitiveDataFromUniformBuffer();
+	return float4(
+		DFFastToTranslatedWorld(PrimitiveData.ObjectWorldPosition, ResolvedView.PreViewTranslation),
+		PrimitiveData.ObjectRadius);
+}
+
+uint VertexFactoryGetPrimitiveId(FVertexFactoryInterpolantsVSToPS)
+{
+	return 0;
+}
+
+#include "/Engine/Private/VertexFactoryDefaultInterface.ush"

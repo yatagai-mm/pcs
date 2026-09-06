@@ -26,6 +26,7 @@ public:
 	UPointCloudSequenceComponent();
 
 	virtual FPrimitiveSceneProxy *CreateSceneProxy() override;
+	virtual FBoxSphereBounds CalcBounds(const FTransform &LocalToWorld) const override;
 	virtual void SendRenderDynamicData_Concurrent() override;
 
 	virtual void BeginPlay() override;
@@ -198,8 +199,10 @@ private:
 	// Newer playback requests replace this value. INDEX_NONE means no request is queued.
 	int32 PendingLoadFrameIndex = INDEX_NONE;
 
+	// Generation counter for target sequence. Incremented whenever the sequence is refreshed or the directory changes.
 	uint64 SequenceGeneration = 0;
 	uint64 NextLoadRequestId = 0;
 	uint64 ActiveLoadRequestId = 0;
+	// Active SequenceGeneration number. Used to ignore load requests from previous generations.
 	uint64 ActiveLoadGeneration = 0;
 };
