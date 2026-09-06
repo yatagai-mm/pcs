@@ -81,6 +81,7 @@ FPCSFrameRenderResources::~FPCSFrameRenderResources()
 void FPCSFrameRenderResources::InitResources(FRHICommandListBase &RHICmdList)
 {
 	check(IsInRenderingThread());
+	// These ultimately call InitRHI() on both buffers
 	PointVertexBuffer.InitResource(RHICmdList);
 	VertexFactory.InitResource(RHICmdList);
 }
