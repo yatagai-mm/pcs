@@ -18,7 +18,9 @@ public class PCS : ModuleRules
 			new string[]
 			{
 				"Projects",
-				"RenderCore"
+				"RenderCore",
+				"Renderer",
+				"RHI"
 			});
 	}
 }
