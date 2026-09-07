@@ -302,8 +302,45 @@ uint8 ReadColor(const uint8 *VertexData, const FPCSPlyProperty *Property, uint8 
 	{
 		return DefaultValue;
 	}
+	if (Property->Type == EPCSPlyScalarType::UInt8)
+	{
+		return VertexData[Property->Offset];
+	}
 
 	return static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(ReadScalar(VertexData + Property->Offset, Property->Type)), 0, 255));
+}
+
+bool HasPackedLayout(const FPCSPlyHeader &Header)
+{
+	if (Header.VertexStride != 15 && Header.VertexStride != 16)
+	{
+		return false;
+	}
+
+	const FPCSPlyProperty *XProperty = FindProperty(Header, TEXT("x"));
+	const FPCSPlyProperty *YProperty = FindProperty(Header, TEXT("y"));
+	const FPCSPlyProperty *ZProperty = FindProperty(Header, TEXT("z"));
+	const FPCSPlyProperty *RedProperty = FindProperty(Header, TEXT("red"));
+	const FPCSPlyProperty *GreenProperty = FindProperty(Header, TEXT("green"));
+	const FPCSPlyProperty *BlueProperty = FindProperty(Header, TEXT("blue"));
+	const FPCSPlyProperty *AlphaProperty = FindProperty(Header, TEXT("alpha"));
+	return XProperty && YProperty && ZProperty && RedProperty && GreenProperty && BlueProperty && XProperty->Type == EPCSPlyScalarType::Float32 &&
+		   YProperty->Type == EPCSPlyScalarType::Float32 && ZProperty->Type == EPCSPlyScalarType::Float32 && XProperty->Offset == 0 && YProperty->Offset == 4 &&
+		   ZProperty->Offset == 8 && RedProperty->Type == EPCSPlyScalarType::UInt8 && GreenProperty->Type == EPCSPlyScalarType::UInt8 &&
+		   BlueProperty->Type == EPCSPlyScalarType::UInt8 && RedProperty->Offset == 12 && GreenProperty->Offset == 13 && BlueProperty->Offset == 14 &&
+		   (Header.VertexStride == 15 || (AlphaProperty && AlphaProperty->Type == EPCSPlyScalarType::UInt8 && AlphaProperty->Offset == 15));
+}
+
+void DecodePackedVertex(const uint8 *VertexData, int32 VertexStride, FPCSPointVertex &Vertex)
+{
+	if (VertexStride == 16)
+	{
+		FMemory::Memcpy(&Vertex, VertexData, sizeof(Vertex));
+		return;
+	}
+
+	FMemory::Memcpy(&Vertex.Position, VertexData, sizeof(Vertex.Position));
+	Vertex.Color = FColor(VertexData[12], VertexData[13], VertexData[14], 255);
 }
 } // namespace
 
@@ -378,6 +415,7 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 	const int32 VerticesPerChunk = FMath::Max(1, TargetReadSize / Header.VertexStride);
 	TArray<uint8> ReadBuffer;
 	ReadBuffer.SetNumUninitialized(VerticesPerChunk * Header.VertexStride);
+	const bool bHasPackedLayout = HasPackedLayout(Header);
 
 	for (int64 FirstVertex = 0; FirstVertex < Header.VertexCount; FirstVertex += VerticesPerChunk)
 	{
@@ -388,7 +426,20 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 			return MakeLoadError(FString::Printf(TEXT("Unable to read PLY vertex payload at vertex %lld: %s"), FirstVertex, *FilePath));
 		}
 
-		for (int32 ChunkIndex = 0; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
+		const int32 PackedVertexCount = bHasPackedLayout ? ChunkVertexCount - (ChunkVertexCount % 2) : 0;
+		for (int32 ChunkIndex = 0; ChunkIndex < PackedVertexCount; ++ChunkIndex)
+		{
+			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
+			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
+			DecodePackedVertex(VertexData, Header.VertexStride, Vertex);
+			if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
+			{
+				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
+			}
+			MutableFrame->Bounds += Vertex.Position;
+		}
+
+		for (int32 ChunkIndex = PackedVertexCount; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
 		{
 			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
 			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];

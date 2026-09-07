@@ -6,9 +6,85 @@
 #include "HAL/PlatformTime.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "UObject/StrongObjectPtr.h"
+
+namespace
+{
+TArray<uint8> MakeOptimizationFixture(int32 VertexStride)
+{
+	const ANSICHAR *Header =
+		VertexStride == 15 ? "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar "
+							 "red\nproperty uchar green\nproperty uchar blue\nend_header\n"
+		: VertexStride == 16
+			? "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty "
+			  "uchar green\nproperty uchar blue\nproperty uchar alpha\nend_header\n"
+			: "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty uchar red\nproperty float y\nproperty uchar green\nproperty "
+			  "float z\nproperty uchar blue\nproperty uchar padding0\nproperty uchar padding1\nproperty uchar padding2\nend_header\n";
+	TArray<uint8> Bytes;
+	Bytes.Append(reinterpret_cast<const uint8 *>(Header), FCStringAnsi::Strlen(Header));
+	const float Positions[3][3] = {{1.0f, 2.0f, 3.0f}, {-4.0f, 5.0f, -6.0f}, {7.0f, -8.0f, 9.0f}};
+	const uint8 Colors[3][4] = {{10, 20, 30, 40}, {50, 60, 70, 80}, {90, 100, 110, 120}};
+	for (int32 VertexIndex = 0; VertexIndex < 3; ++VertexIndex)
+	{
+		if (VertexStride == 15 || VertexStride == 16)
+		{
+			const int32 Start = Bytes.AddZeroed(VertexStride);
+			FMemory::Memcpy(Bytes.GetData() + Start, Positions[VertexIndex], sizeof(Positions[VertexIndex]));
+			FMemory::Memcpy(Bytes.GetData() + Start + 12, Colors[VertexIndex], VertexStride == 15 ? 3 : 4);
+		}
+		else
+		{
+			const int32 Start = Bytes.AddZeroed(18);
+			FMemory::Memcpy(Bytes.GetData() + Start, &Positions[VertexIndex][0], sizeof(float));
+			Bytes[Start + 4] = Colors[VertexIndex][0];
+			FMemory::Memcpy(Bytes.GetData() + Start + 5, &Positions[VertexIndex][1], sizeof(float));
+			Bytes[Start + 9] = Colors[VertexIndex][1];
+			FMemory::Memcpy(Bytes.GetData() + Start + 10, &Positions[VertexIndex][2], sizeof(float));
+			Bytes[Start + 14] = Colors[VertexIndex][2];
+		}
+	}
+	return Bytes;
+}
+
+void RunOptimizationFixtureTest(FAutomationTestBase &Test, int32 VertexStride)
+{
+	const FString Path = FPaths::Combine(FPaths::ProjectIntermediateDir(),
+										 FString::Printf(TEXT("pcs_loader_%d_%s.ply"), VertexStride, *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	const TArray<uint8> Bytes = MakeOptimizationFixture(VertexStride);
+	Test.TestTrue(TEXT("Write optimization fixture"), FFileHelper::SaveArrayToFile(Bytes, *Path));
+	const FPCSPlyLoadResult Result = FPCSPlyLoader::LoadFromFile(Path);
+	Test.TestTrue(TEXT("Optimization fixture loads"), Result.IsSuccess());
+	if (Result.IsSuccess())
+	{
+		Test.TestEqual(TEXT("Optimization fixture vertex count"), Result.FrameData->Vertices.Num(), 3);
+		Test.TestEqual(TEXT("Optimization fixture red channel"), Result.FrameData->Vertices[1].Color.R, static_cast<uint8>(50));
+		Test.TestTrue(TEXT("Optimization fixture position"), Result.FrameData->Vertices[2].Position.Equals(FVector3f(7.0f, -8.0f, 9.0f), 0.000001f));
+	}
+	IFileManager::Get().Delete(*Path);
+}
+} // namespace
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderPackedLayoutOptimizationTest, "PCS.Loading.PlyLoader.PackedLayoutOptimization",
+								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPCSPlyLoaderPackedLayoutOptimizationTest::RunTest(const FString &Parameters)
+{
+	RunOptimizationFixtureTest(*this, 15);
+	RunOptimizationFixtureTest(*this, 16);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderGenericLayoutOptimizationTest, "PCS.Loading.PlyLoader.GenericLayoutFallback",
+								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPCSPlyLoaderGenericLayoutOptimizationTest::RunTest(const FString &Parameters)
+{
+	RunOptimizationFixtureTest(*this, 18);
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderBinaryLittleEndianTest, "PCS.Loading.PlyLoader.BinaryLittleEndian",
 								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -54,10 +130,7 @@ bool FPCSPlyLoaderBinaryLittleEndianTest::RunTest(const FString &Parameters)
 class FPCSWaitForFolderFrameLoadCommand final : public IAutomationLatentCommand
 {
 public:
-	FPCSWaitForFolderFrameLoadCommand(
-		TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent,
-		FAutomationTestBase *InTest,
-		FString InTemporaryDirectory)
+	FPCSWaitForFolderFrameLoadCommand(TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent, FAutomationTestBase *InTest, FString InTemporaryDirectory)
 		: Component(MoveTemp(InComponent)), Test(InTest), TemporaryDirectory(MoveTemp(InTemporaryDirectory)), StartTime(FPlatformTime::Seconds())
 	{
 	}
@@ -107,10 +180,8 @@ bool FPCSComponentFolderSequenceTest::RunTest(const FString &Parameters)
 	}
 
 	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Tests/Fixtures/frame_000038_first_64.ply"));
-	const FString TemporaryDirectory = FPaths::Combine(
-		FPaths::ProjectIntermediateDir(),
-		TEXT("PCSAutomation"),
-		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	const FString TemporaryDirectory =
+		FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("PCSAutomation"), FGuid::NewGuid().ToString(EGuidFormats::Digits));
 
 	if (!TestTrue(TEXT("Create temporary sequence directory"), IFileManager::Get().MakeDirectory(*TemporaryDirectory, true)))
 	{
@@ -134,8 +205,7 @@ bool FPCSComponentFolderSequenceTest::RunTest(const FString &Parameters)
 	TestEqual(TEXT("Configured directory"), Component->GetSequenceDirectory(), TemporaryDirectory);
 	TestEqual(TEXT("Configured regex"), Component->GetFrameFileNameRegex(), FileNameRegex);
 
-	FAutomationTestFramework::Get().EnqueueLatentCommand(
-		MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), this, TemporaryDirectory));
+	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), this, TemporaryDirectory));
 	return true;
 }
 
