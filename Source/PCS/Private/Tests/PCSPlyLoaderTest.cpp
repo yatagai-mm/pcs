@@ -178,7 +178,7 @@ bool FPCSPlyLoaderBinaryLittleEndianTest::RunTest(const FString &Parameters)
 	}
 
 	// I could remove Project module completely by not using GetBaseDir but nah
-	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Tests/Fixtures/frame_000038_first_64.ply"));
+	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Static/frame_000038_first_64.ply"));
 	const FPCSPlyLoadResult Result = FPCSPlyLoader::LoadFromFile(FixturePath);
 	if (!TestTrue(TEXT("Fixture loads successfully"), Result.IsSuccess()))
 	{
@@ -268,7 +268,7 @@ bool FPCSComponentFolderSequenceTest::RunTest(const FString &Parameters)
 		return false;
 	}
 
-	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Tests/Fixtures/frame_000038_first_64.ply"));
+	const FString FixturePath = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Static/frame_000038_first_64.ply"));
 	const FString TemporaryDirectory =
 		FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("PCSAutomation"), FGuid::NewGuid().ToString(EGuidFormats::Digits));
 
