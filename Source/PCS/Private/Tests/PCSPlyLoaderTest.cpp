@@ -3,6 +3,7 @@
 #include "Loading/PCSPlyLoader.h"
 #include "PointCloudSequenceComponent.h"
 
+#include "Engine/World.h"
 #include "HAL/PlatformTime.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
@@ -86,6 +87,48 @@ bool FPCSPlyLoaderGenericLayoutOptimizationTest::RunTest(const FString &Paramete
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderGenericChunkBoundsTest, "PCS.Loading.PlyLoader.GenericChunkBounds",
+								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPCSPlyLoaderGenericChunkBoundsTest::RunTest(const FString &Parameters)
+{
+	// Reordered properties force generic decoding. The payload exceeds 4 MiB,
+	// with extrema in different chunks to catch accidental bounds replacement.
+	constexpr int32 VertexCount = 250001;
+	constexpr int32 Stride = 18;
+	const ANSICHAR *Header =
+		"ply\nformat binary_little_endian 1.0\nelement vertex 250001\nproperty float x\nproperty uchar red\nproperty float y\nproperty uchar green\n"
+		"property float z\nproperty uchar blue\nproperty uchar padding0\nproperty uchar padding1\nproperty uchar padding2\nend_header\n";
+	TArray<uint8> Bytes;
+	Bytes.Append(reinterpret_cast<const uint8 *>(Header), FCStringAnsi::Strlen(Header));
+	const int32 DataOffset = Bytes.Num();
+	Bytes.AddZeroed(VertexCount * Stride);
+	const float First[3] = {-100.0f, -200.0f, -300.0f};
+	const float Last[3] = {400.0f, 500.0f, 600.0f};
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		FMemory::Memcpy(Bytes.GetData() + DataOffset + Axis * 5, &First[Axis], sizeof(float));
+		FMemory::Memcpy(Bytes.GetData() + DataOffset + (VertexCount - 1) * Stride + Axis * 5, &Last[Axis], sizeof(float));
+	}
+	const FString Path = FPaths::Combine(FPaths::ProjectIntermediateDir(),
+		TEXT("pcs_generic_bounds_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) + TEXT(".ply"));
+	if (!TestTrue(TEXT("Write multichunk generic fixture"), FFileHelper::SaveArrayToFile(Bytes, *Path)))
+	{
+		return false;
+	}
+	const FPCSPlyLoadResult Result = FPCSPlyLoader::LoadFromFile(Path);
+	IFileManager::Get().Delete(*Path);
+	if (!TestTrue(TEXT("Multichunk generic fixture loads"), Result.IsSuccess()))
+	{
+		return false;
+	}
+	TestEqual(TEXT("All generic vertices decoded"), Result.FrameData->Vertices.Num(), VertexCount);
+	TestTrue(TEXT("Bounds remain valid"), Result.FrameData->Bounds.IsValid != 0);
+	TestTrue(TEXT("Minimum retained from first chunk"), Result.FrameData->Bounds.Min == FVector3f(-100.0f, -200.0f, -300.0f));
+	TestTrue(TEXT("Maximum retained from last chunk"), Result.FrameData->Bounds.Max == FVector3f(400.0f, 500.0f, 600.0f));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderBinaryLittleEndianTest, "PCS.Loading.PlyLoader.BinaryLittleEndian",
 								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -130,8 +173,10 @@ bool FPCSPlyLoaderBinaryLittleEndianTest::RunTest(const FString &Parameters)
 class FPCSWaitForFolderFrameLoadCommand final : public IAutomationLatentCommand
 {
 public:
-	FPCSWaitForFolderFrameLoadCommand(TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent, FAutomationTestBase *InTest, FString InTemporaryDirectory)
-		: Component(MoveTemp(InComponent)), Test(InTest), TemporaryDirectory(MoveTemp(InTemporaryDirectory)), StartTime(FPlatformTime::Seconds())
+	FPCSWaitForFolderFrameLoadCommand(TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent, TStrongObjectPtr<UWorld> &&InWorld,
+		FAutomationTestBase *InTest, FString InTemporaryDirectory)
+		: Component(MoveTemp(InComponent)), World(MoveTemp(InWorld)), Test(InTest), TemporaryDirectory(MoveTemp(InTemporaryDirectory)),
+		  StartTime(FPlatformTime::Seconds())
 	{
 	}
 
@@ -141,6 +186,9 @@ public:
 		{
 			Test->TestEqual(TEXT("Asynchronously loaded current frame"), Component->GetLoadedFrame(), 0);
 			Test->TestEqual(TEXT("Immediately prefetched next frame"), Component->GetBufferedFrame(), 1);
+			Component->TickComponent(0.01f, LEVELTICK_All, nullptr);
+			Test->TestEqual(TEXT("Playback clock resumes after the initial load"), Component->GetPlaybackTime(), static_cast<double>(0.01f));
+			Test->TestTrue(TEXT("Playback remains active after initial load"), Component->IsPlaying());
 			Finish();
 			return true;
 		}
@@ -158,11 +206,15 @@ public:
 private:
 	void Finish()
 	{
+		Component->UnregisterComponent();
 		Component.Reset();
+		World->DestroyWorld(false);
+		World.Reset();
 		IFileManager::Get().DeleteDirectory(*TemporaryDirectory, false, true);
 	}
 
 	TStrongObjectPtr<UPointCloudSequenceComponent> Component;
+	TStrongObjectPtr<UWorld> World;
 	FAutomationTestBase *Test = nullptr;
 	FString TemporaryDirectory;
 	double StartTime = 0.0;
@@ -198,14 +250,26 @@ bool FPCSComponentFolderSequenceTest::RunTest(const FString &Parameters)
 	}
 
 	const FString FileNameRegex = TEXT("^frame_(\\d+)\\.ply$");
+	TStrongObjectPtr<UWorld> World(UWorld::CreateWorld(EWorldType::Game, false));
 	TStrongObjectPtr<UPointCloudSequenceComponent> Component(NewObject<UPointCloudSequenceComponent>(GetTransientPackage()));
+	Component->RegisterComponentWithWorld(World.Get());
 
 	Component->SetSequenceSource(TemporaryDirectory, FileNameRegex);
 	TestEqual(TEXT("Matching frame count"), Component->GetFrameCount(), 2);
 	TestEqual(TEXT("Configured directory"), Component->GetSequenceDirectory(), TemporaryDirectory);
 	TestEqual(TEXT("Configured regex"), Component->GetFrameFileNameRegex(), FileNameRegex);
 
-	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), this, TemporaryDirectory));
+	Component->FrameRate = 30.0f;
+	Component->Play();
+	// The completion callback runs on the game thread, so no result can be
+	// activated during this synchronous tick, even if the worker has finished.
+	Component->TickComponent(0.05f, LEVELTICK_All, nullptr);
+	TestEqual(TEXT("Initial load keeps playback clock at zero"), Component->GetPlaybackTime(), 0.0);
+	TestEqual(TEXT("Initial load keeps the first frame selected"), Component->GetCurrentFrame(), 0);
+	TestTrue(TEXT("Play remains pending during the initial load"), Component->IsPlaying());
+
+	FAutomationTestFramework::Get().EnqueueLatentCommand(
+		MakeShared<FPCSWaitForFolderFrameLoadCommand>(MoveTemp(Component), MoveTemp(World), this, TemporaryDirectory));
 	return true;
 }
 

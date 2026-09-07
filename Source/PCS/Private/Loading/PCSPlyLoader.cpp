@@ -505,10 +505,15 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 		}
 		else
 		{
+			// Accumulate extrema locally and merge once per chunk, avoiding the
+			// FBox validity check for every vertex on the generic decode path.
+			FVector3f Min(MAX_flt, MAX_flt, MAX_flt);
+			FVector3f Max(-MAX_flt, -MAX_flt, -MAX_flt);
+			FPCSPointVertex *Dest = MutableFrame->Vertices.GetData() + FirstVertex;
 			for (int32 ChunkIndex = 0; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
 			{
 				const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
-				FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
+				FPCSPointVertex &Vertex = Dest[ChunkIndex];
 				Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
 											static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
 											static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
@@ -520,8 +525,14 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 
 				Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
 									  ReadColor(VertexData, AlphaProperty, 255));
-				MutableFrame->Bounds += Vertex.Position;
+				Min.X = FMath::Min(Min.X, Vertex.Position.X);
+				Min.Y = FMath::Min(Min.Y, Vertex.Position.Y);
+				Min.Z = FMath::Min(Min.Z, Vertex.Position.Z);
+				Max.X = FMath::Max(Max.X, Vertex.Position.X);
+				Max.Y = FMath::Max(Max.Y, Vertex.Position.Y);
+				Max.Z = FMath::Max(Max.Z, Vertex.Position.Z);
 			}
+			MutableFrame->Bounds += FBox3f(Min, Max);
 		}
 	}
 

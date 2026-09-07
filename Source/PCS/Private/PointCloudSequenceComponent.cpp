@@ -122,6 +122,14 @@ void UPointCloudSequenceComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		return;
 	}
 
+	// Keep Play() pending until the initial frame arrives. Advancing the clock
+	// during cold I/O can make every completed load stale before it is ever
+	// activated, indefinitely starving presentation even with a fast decoder.
+	if (!SequenceFilePaths.IsEmpty() && !CurrentFrameData.IsValid())
+	{
+		return;
+	}
+
 	AdvancePlayback(DeltaTime);
 }
 
