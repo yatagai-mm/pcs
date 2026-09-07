@@ -8,3 +8,22 @@ PCS has demonstrated 30 FPS real-time playback of a VV sequence containing about
 
 ## How to Use
 
+Add PCS to your Unreal project as a Git submodule:
+
+```sh
+git submodule add https://github.com/yatagai-mm/pcs.git Plugins/PCS
+```
+
+Enable PCS from Edit > Plugins, then restart Unreal Editor. After cloning the project elsewhere, initialize the submodule with:
+
+```sh
+git submodule update --init --recursive
+```
+
+For C++ projects, add `PCS` to your module's dependencies:
+
+```csharp
+PublicDependencyModuleNames.Add("PCS");
+```
+
+See [yatagai-mm/pcs-playground](https://github.com/yatagai-mm/pcs-playground) for a sample project.
