@@ -1,5 +1,5 @@
 # PCS
-UE plugin for rendering a sequence of XYZRGB point cloud frames. This plugin parses .ply files and render them with specified frame rate.
+Point Cloud Sequence (PCS) is a UE plugin for rendering a sequence of XYZRGB point cloud frames. This plugin parses .ply files and render them with specified frame rate.
 
 <img width="320" alt="longdress" src="https://github.com/user-attachments/assets/970edbfb-9d4f-4b03-9ebe-b887a9939bcd" />
 <img width="320" alt="baseball" src="https://github.com/user-attachments/assets/0242378b-e06d-4047-9eda-e69479f3b708" />
