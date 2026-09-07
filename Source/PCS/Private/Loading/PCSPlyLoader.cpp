@@ -39,6 +39,11 @@ struct FPCSPlyHeader
 	// Length of the bytes for one vertex
 	int32 VertexStride = 0;
 	TArray<FPCSPlyProperty> VertexProperties;
+	// Optional 8i frame-space metadata. Identity defaults preserve ordinary PLY
+	// files that do not declare either comment.
+	float FrameToWorldScale = 1.0f;
+	FVector3f FrameToWorldTranslation = FVector3f::ZeroVector;
+	bool bHasFrameToWorldTransform = false;
 };
 
 FPCSPlyLoadResult MakeLoadError(FString Message)
@@ -177,7 +182,9 @@ int32 FindHeaderDataOffset(const TArray<uint8> &Bytes)
 // If successful, OutHeader is populated and the function returns true.
 // Otherwise, OutError contains a description of the failure and the function returns false.
 //
-// This parser only reads the format, element and property lines
+// In addition to the standard format, element and property lines, this parser
+// recognizes 8i's frame_to_world_scale and frame_to_world_translation comments. (see https://plenodb.jpeg.org/pc/8ilabs)
+// We support these non-standard comments only because 8i is a quite popular PLY dataset.
 bool ParseHeader(const TArray<uint8> &HeaderBytes, int32 DataOffset, FPCSPlyHeader &OutHeader, FString &OutError)
 {
 	FString HeaderText;
@@ -214,6 +221,27 @@ bool ParseHeader(const TArray<uint8> &HeaderBytes, int32 DataOffset, FPCSPlyHead
 		if (Tokens[0] == TEXT("format"))
 		{
 			bHasSupportedFormat = Tokens.Num() == 3 && Tokens[1] == TEXT("binary_little_endian") && Tokens[2] == TEXT("1.0");
+		}
+		else if (Tokens[0] == TEXT("comment") && Tokens.Num() >= 2 && Tokens[1].Equals(TEXT("frame_to_world_scale"), ESearchCase::IgnoreCase))
+		{
+			if (Tokens.Num() != 3 || !LexTryParseString(OutHeader.FrameToWorldScale, *Tokens[2]) || !FMath::IsFinite(OutHeader.FrameToWorldScale))
+			{
+				OutError = FString::Printf(TEXT("Malformed frame_to_world_scale comment: %s"), *Line);
+				return false;
+			}
+			OutHeader.bHasFrameToWorldTransform = true;
+		}
+		else if (Tokens[0] == TEXT("comment") && Tokens.Num() >= 2 && Tokens[1].Equals(TEXT("frame_to_world_translation"), ESearchCase::IgnoreCase))
+		{
+			if (Tokens.Num() != 5 || !LexTryParseString(OutHeader.FrameToWorldTranslation.X, *Tokens[2]) ||
+				!LexTryParseString(OutHeader.FrameToWorldTranslation.Y, *Tokens[3]) || !LexTryParseString(OutHeader.FrameToWorldTranslation.Z, *Tokens[4]) ||
+				!FMath::IsFinite(OutHeader.FrameToWorldTranslation.X) || !FMath::IsFinite(OutHeader.FrameToWorldTranslation.Y) ||
+				!FMath::IsFinite(OutHeader.FrameToWorldTranslation.Z))
+			{
+				OutError = FString::Printf(TEXT("Malformed frame_to_world_translation comment: %s"), *Line);
+				return false;
+			}
+			OutHeader.bHasFrameToWorldTransform = true;
 		}
 		else if (Tokens[0] == TEXT("element"))
 		{
@@ -264,7 +292,7 @@ bool ParseHeader(const TArray<uint8> &HeaderBytes, int32 DataOffset, FPCSPlyHead
 			OutHeader.VertexStride += Property.Size;
 			OutHeader.VertexProperties.Add(MoveTemp(Property));
 		}
-		// Ignore other lines like comments
+		// Ignore unrecognized comments and other header lines.
 	}
 
 	if (!bHasSupportedFormat)
@@ -334,21 +362,18 @@ bool HasPackedLayout(const FPCSPlyHeader &Header)
 
 bool DecodePackedVertex(const uint8 *VertexData, int32 VertexStride, FPCSPointVertex &Vertex)
 {
-	if (VertexStride == 16)
-	{
-		FMemory::Memcpy(&Vertex, VertexData, sizeof(Vertex));
-		return FMath::IsFinite(Vertex.Position.X) && FMath::IsFinite(Vertex.Position.Y) && FMath::IsFinite(Vertex.Position.Z);
-	}
-
 	FMemory::Memcpy(&Vertex.Position, VertexData, sizeof(Vertex.Position));
-	Vertex.Color = FColor(VertexData[12], VertexData[13], VertexData[14], 255);
+	Vertex.Color = FColor(VertexData[12], VertexData[13], VertexData[14], VertexStride == 16 ? VertexData[15] : 255);
 	return FMath::IsFinite(Vertex.Position.X) && FMath::IsFinite(Vertex.Position.Y) && FMath::IsFinite(Vertex.Position.Z);
 }
 
-template <int32 Stride>
-int32 DecodePackedSIMD(const uint8 *RESTRICT Source, FPCSPointVertex *RESTRICT Dest, int32 Count, FBox3f &Bounds)
+template <int32 Stride, bool bApplyFrameToWorldTransform>
+int32 DecodePackedSIMD(const uint8 *RESTRICT Source, FPCSPointVertex *RESTRICT Dest, int32 Count, FBox3f &Bounds, float FrameToWorldScale,
+					   const FVector3f &FrameToWorldTranslation)
 {
 	const VectorRegister4Float ExponentMask = MakeVectorRegisterFloat(0x7f800000u, 0x7f800000u, 0x7f800000u, 0u);
+	const VectorRegister4Float Scale = VectorSetFloat1(FrameToWorldScale);
+	const VectorRegister4Float Translation = MakeVectorRegisterFloat(FrameToWorldTranslation.X, FrameToWorldTranslation.Y, FrameToWorldTranslation.Z, 0.0f);
 	VectorRegister4Float Min[4], Max[4], Exponents[4];
 	for (int32 Lane = 0; Lane < 4; ++Lane)
 	{
@@ -366,8 +391,16 @@ int32 DecodePackedSIMD(const uint8 *RESTRICT Source, FPCSPointVertex *RESTRICT D
 			const uint8 *Record = Source + (Index + Lane) * Stride;
 			VectorRegister4Float Raw;
 			FMemory::Memcpy(&Raw, Record, 16);
-			const VectorRegister4Float Position = VectorSet_W0(Raw);
-			FMemory::Memcpy(&Dest[Index + Lane], &Raw, 16);
+			VectorRegister4Float Position = VectorSet_W0(Raw);
+			if constexpr (bApplyFrameToWorldTransform)
+			{
+				Position = VectorMultiplyAdd(Position, Scale, Translation);
+				VectorStoreFloat3(Position, &Dest[Index + Lane].Position.X);
+			}
+			else
+			{
+				FMemory::Memcpy(&Dest[Index + Lane], &Raw, 16);
+			}
 			Dest[Index + Lane].Color = FColor(Record[12], Record[13], Record[14], Stride == 16 ? Record[15] : 255);
 			Min[Lane] = VectorMin(Min[Lane], Position);
 			Max[Lane] = VectorMax(Max[Lane], Position);
@@ -401,6 +434,14 @@ int32 DecodePackedSIMD(const uint8 *RESTRICT Source, FPCSPointVertex *RESTRICT D
 		if (!DecodePackedVertex(Source + Index * Stride, Stride, Dest[Index]))
 		{
 			return Index;
+		}
+		if constexpr (bApplyFrameToWorldTransform)
+		{
+			Dest[Index].Position = Dest[Index].Position * FrameToWorldScale + FrameToWorldTranslation;
+			if (!FMath::IsFinite(Dest[Index].Position.X) || !FMath::IsFinite(Dest[Index].Position.Y) || !FMath::IsFinite(Dest[Index].Position.Z))
+			{
+				return Index;
+			}
 		}
 		Bounds += Dest[Index].Position;
 	}
@@ -480,10 +521,11 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 	TArray<uint8> ReadBuffer;
 	ReadBuffer.SetNumUninitialized(VerticesPerChunk * Header.VertexStride);
 	const bool bHasPackedLayout = HasPackedLayout(Header);
-	using FPackedDecoder = int32 (*)(const uint8 *, FPCSPointVertex *, int32, FBox3f &);
-	const FPackedDecoder PackedDecoder = bHasPackedLayout
-		? (Header.VertexStride == 15 ? &DecodePackedSIMD<15> : &DecodePackedSIMD<16>)
-		: nullptr;
+	using FPackedDecoder = int32 (*)(const uint8 *, FPCSPointVertex *, int32, FBox3f &, float, const FVector3f &);
+	const FPackedDecoder PackedDecoder =
+		bHasPackedLayout ? (Header.VertexStride == 15 ? (Header.bHasFrameToWorldTransform ? &DecodePackedSIMD<15, true> : &DecodePackedSIMD<15, false>)
+													  : (Header.bHasFrameToWorldTransform ? &DecodePackedSIMD<16, true> : &DecodePackedSIMD<16, false>))
+						 : nullptr;
 
 	for (int64 FirstVertex = 0; FirstVertex < Header.VertexCount; FirstVertex += VerticesPerChunk)
 	{
@@ -497,7 +539,8 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 		if (PackedDecoder)
 		{
 			FPCSPointVertex *Dest = MutableFrame->Vertices.GetData() + FirstVertex;
-			const int32 InvalidIndex = PackedDecoder(ReadBuffer.GetData(), Dest, ChunkVertexCount, MutableFrame->Bounds);
+			const int32 InvalidIndex =
+				PackedDecoder(ReadBuffer.GetData(), Dest, ChunkVertexCount, MutableFrame->Bounds, Header.FrameToWorldScale, Header.FrameToWorldTranslation);
 			if (InvalidIndex != INDEX_NONE)
 			{
 				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + InvalidIndex, *FilePath));
@@ -517,14 +560,18 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 				Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
 											static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
 											static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
+				if (Header.bHasFrameToWorldTransform)
+				{
+					Vertex.Position = Vertex.Position * Header.FrameToWorldScale + Header.FrameToWorldTranslation;
+				}
 
 				if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
 				{
 					return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
 				}
 
-				Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
-									  ReadColor(VertexData, AlphaProperty, 255));
+				Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255),
+									  ReadColor(VertexData, BlueProperty, 255), ReadColor(VertexData, AlphaProperty, 255));
 				Min.X = FMath::Min(Min.X, Vertex.Position.X);
 				Min.Y = FMath::Min(Min.Y, Vertex.Position.Y);
 				Min.Z = FMath::Min(Min.Z, Vertex.Position.Z);

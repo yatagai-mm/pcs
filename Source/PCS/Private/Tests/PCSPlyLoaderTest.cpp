@@ -14,7 +14,7 @@
 
 namespace
 {
-TArray<uint8> MakeOptimizationFixture(int32 VertexStride)
+TArray<uint8> MakeOptimizationFixture(int32 VertexStride, bool bIncludeFrameToWorldTransform = false)
 {
 	const ANSICHAR *Header =
 		VertexStride == 15 ? "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar "
@@ -26,6 +26,12 @@ TArray<uint8> MakeOptimizationFixture(int32 VertexStride)
 			  "float z\nproperty uchar blue\nproperty uchar padding0\nproperty uchar padding1\nproperty uchar padding2\nend_header\n";
 	TArray<uint8> Bytes;
 	Bytes.Append(reinterpret_cast<const uint8 *>(Header), FCStringAnsi::Strlen(Header));
+	if (bIncludeFrameToWorldTransform)
+	{
+		const ANSICHAR *Comments = "comment frame_to_world_scale 2\ncomment frame_to_world_translation 10 20 30\n";
+		constexpr int32 CommentsOffset = UE_ARRAY_COUNT("ply\nformat binary_little_endian 1.0\n") - 1;
+		Bytes.Insert(reinterpret_cast<const uint8 *>(Comments), FCStringAnsi::Strlen(Comments), CommentsOffset);
+	}
 	const float Positions[3][3] = {{1.0f, 2.0f, 3.0f}, {-4.0f, 5.0f, -6.0f}, {7.0f, -8.0f, 9.0f}};
 	const uint8 Colors[3][4] = {{10, 20, 30, 40}, {50, 60, 70, 80}, {90, 100, 110, 120}};
 	for (int32 VertexIndex = 0; VertexIndex < 3; ++VertexIndex)
@@ -66,6 +72,25 @@ void RunOptimizationFixtureTest(FAutomationTestBase &Test, int32 VertexStride)
 	}
 	IFileManager::Get().Delete(*Path);
 }
+
+void RunFrameToWorldTransformFixtureTest(FAutomationTestBase &Test, int32 VertexStride)
+{
+	const FString Path = FPaths::Combine(FPaths::ProjectIntermediateDir(),
+										 FString::Printf(TEXT("pcs_frame_to_world_%d_%s.ply"), VertexStride, *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	const TArray<uint8> Bytes = MakeOptimizationFixture(VertexStride, true);
+	Test.TestTrue(TEXT("Write frame-to-world fixture"), FFileHelper::SaveArrayToFile(Bytes, *Path));
+	const FPCSPlyLoadResult Result = FPCSPlyLoader::LoadFromFile(Path);
+	Test.TestTrue(TEXT("Frame-to-world fixture loads"), Result.IsSuccess());
+	if (Result.IsSuccess())
+	{
+		Test.TestTrue(TEXT("Frame-to-world transform applies to vertices"),
+					  Result.FrameData->Vertices[2].Position.Equals(FVector3f(24.0f, 4.0f, 48.0f), 0.000001f));
+		Test.TestTrue(TEXT("Frame-to-world transform applies to bounds minimum"), Result.FrameData->Bounds.Min.Equals(FVector3f(2.0f, 4.0f, 18.0f), 0.000001f));
+		Test.TestTrue(TEXT("Frame-to-world transform applies to bounds maximum"),
+					  Result.FrameData->Bounds.Max.Equals(FVector3f(24.0f, 30.0f, 48.0f), 0.000001f));
+	}
+	IFileManager::Get().Delete(*Path);
+}
 } // namespace
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderPackedLayoutOptimizationTest, "PCS.Loading.PlyLoader.PackedLayoutOptimization",
@@ -84,6 +109,18 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderGenericLayoutOptimizationTest, "PC
 bool FPCSPlyLoaderGenericLayoutOptimizationTest::RunTest(const FString &Parameters)
 {
 	RunOptimizationFixtureTest(*this, 18);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPCSPlyLoaderFrameToWorldTransformTest, "PCS.Loading.PlyLoader.FrameToWorldTransform",
+								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPCSPlyLoaderFrameToWorldTransformTest::RunTest(const FString &Parameters)
+{
+	// Exercise both optimized packed layouts and the generic reordered-property path.
+	RunFrameToWorldTransformFixtureTest(*this, 15);
+	RunFrameToWorldTransformFixtureTest(*this, 16);
+	RunFrameToWorldTransformFixtureTest(*this, 18);
 	return true;
 }
 
@@ -110,8 +147,8 @@ bool FPCSPlyLoaderGenericChunkBoundsTest::RunTest(const FString &Parameters)
 		FMemory::Memcpy(Bytes.GetData() + DataOffset + Axis * 5, &First[Axis], sizeof(float));
 		FMemory::Memcpy(Bytes.GetData() + DataOffset + (VertexCount - 1) * Stride + Axis * 5, &Last[Axis], sizeof(float));
 	}
-	const FString Path = FPaths::Combine(FPaths::ProjectIntermediateDir(),
-		TEXT("pcs_generic_bounds_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) + TEXT(".ply"));
+	const FString Path =
+		FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("pcs_generic_bounds_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) + TEXT(".ply"));
 	if (!TestTrue(TEXT("Write multichunk generic fixture"), FFileHelper::SaveArrayToFile(Bytes, *Path)))
 	{
 		return false;
@@ -174,7 +211,7 @@ class FPCSWaitForFolderFrameLoadCommand final : public IAutomationLatentCommand
 {
 public:
 	FPCSWaitForFolderFrameLoadCommand(TStrongObjectPtr<UPointCloudSequenceComponent> &&InComponent, TStrongObjectPtr<UWorld> &&InWorld,
-		FAutomationTestBase *InTest, FString InTemporaryDirectory)
+									  FAutomationTestBase *InTest, FString InTemporaryDirectory)
 		: Component(MoveTemp(InComponent)), World(MoveTemp(InWorld)), Test(InTest), TemporaryDirectory(MoveTemp(InTemporaryDirectory)),
 		  StartTime(FPlatformTime::Seconds())
 	{
