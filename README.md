@@ -6,8 +6,7 @@ UE plugin for rendering a sequence of XYZRGB point cloud frames. This plugin par
 
 PCS has demonstrated 30 FPS real-time playback of a VV sequence containing about 10 million XYZRGB points per frame. Each binary PLY frame is approximately 148.5 MB, corresponding to roughly 297 million points and 4.46 GB of uncompressed point-cloud data per second.
 
-## How to Use
-
+## Install
 Add PCS to your Unreal project as a Git submodule:
 
 ```sh
@@ -20,6 +19,7 @@ Enable PCS from Edit > Plugins, then restart Unreal Editor. After cloning the pr
 git submodule update --init --recursive
 ```
 
+## How to Use
 For C++ projects, add `PCS` to your module's dependencies:
 
 ```csharp
