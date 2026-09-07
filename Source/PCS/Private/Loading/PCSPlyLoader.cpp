@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformFileManager.h"
 #include "Math/UnrealMathUtility.h"
+#include "Math/VectorRegister.h"
 
 namespace
 {
@@ -331,16 +332,79 @@ bool HasPackedLayout(const FPCSPlyHeader &Header)
 		   (Header.VertexStride == 15 || (AlphaProperty && AlphaProperty->Type == EPCSPlyScalarType::UInt8 && AlphaProperty->Offset == 15));
 }
 
-void DecodePackedVertex(const uint8 *VertexData, int32 VertexStride, FPCSPointVertex &Vertex)
+bool DecodePackedVertex(const uint8 *VertexData, int32 VertexStride, FPCSPointVertex &Vertex)
 {
 	if (VertexStride == 16)
 	{
 		FMemory::Memcpy(&Vertex, VertexData, sizeof(Vertex));
-		return;
+		return FMath::IsFinite(Vertex.Position.X) && FMath::IsFinite(Vertex.Position.Y) && FMath::IsFinite(Vertex.Position.Z);
 	}
 
 	FMemory::Memcpy(&Vertex.Position, VertexData, sizeof(Vertex.Position));
 	Vertex.Color = FColor(VertexData[12], VertexData[13], VertexData[14], 255);
+	return FMath::IsFinite(Vertex.Position.X) && FMath::IsFinite(Vertex.Position.Y) && FMath::IsFinite(Vertex.Position.Z);
+}
+
+template <int32 Stride>
+int32 DecodePackedSIMD(const uint8 *RESTRICT Source, FPCSPointVertex *RESTRICT Dest, int32 Count, FBox3f &Bounds)
+{
+	const VectorRegister4Float ExponentMask = MakeVectorRegisterFloat(0x7f800000u, 0x7f800000u, 0x7f800000u, 0u);
+	VectorRegister4Float Min[4], Max[4], Exponents[4];
+	for (int32 Lane = 0; Lane < 4; ++Lane)
+	{
+		Min[Lane] = MakeVectorRegisterFloat(MAX_flt, MAX_flt, MAX_flt, 0.0f);
+		Max[Lane] = MakeVectorRegisterFloat(-MAX_flt, -MAX_flt, -MAX_flt, 0.0f);
+		Exponents[Lane] = VectorZeroFloat();
+	}
+
+	// Leave a record for the scalar tail so a 16-byte load never reads beyond a 15-byte payload.
+	const int32 VectorCount = Count > 0 ? ((Count - 1) / 4) * 4 : 0;
+	for (int32 Index = 0; Index < VectorCount; Index += 4)
+	{
+		for (int32 Lane = 0; Lane < 4; ++Lane)
+		{
+			const uint8 *Record = Source + (Index + Lane) * Stride;
+			VectorRegister4Float Raw;
+			FMemory::Memcpy(&Raw, Record, 16);
+			const VectorRegister4Float Position = VectorSet_W0(Raw);
+			FMemory::Memcpy(&Dest[Index + Lane], &Raw, 16);
+			Dest[Index + Lane].Color = FColor(Record[12], Record[13], Record[14], Stride == 16 ? Record[15] : 255);
+			Min[Lane] = VectorMin(Min[Lane], Position);
+			Max[Lane] = VectorMax(Max[Lane], Position);
+			Exponents[Lane] = VectorMax(Exponents[Lane], VectorBitwiseAnd(Position, ExponentMask));
+		}
+	}
+
+	const VectorRegister4Float AllExponents = VectorMax(VectorMax(Exponents[0], Exponents[1]), VectorMax(Exponents[2], Exponents[3]));
+	if (VectorContainsNaNOrInfinite(AllExponents))
+	{
+		for (int32 Index = 0; Index < VectorCount; ++Index)
+		{
+			const FVector3f &Position = Dest[Index].Position;
+			if (!FMath::IsFinite(Position.X) || !FMath::IsFinite(Position.Y) || !FMath::IsFinite(Position.Z))
+			{
+				return Index;
+			}
+		}
+	}
+
+	if (VectorCount > 0)
+	{
+		FVector3f ChunkMin, ChunkMax;
+		VectorStoreFloat3(VectorMin(VectorMin(Min[0], Min[1]), VectorMin(Min[2], Min[3])), &ChunkMin.X);
+		VectorStoreFloat3(VectorMax(VectorMax(Max[0], Max[1]), VectorMax(Max[2], Max[3])), &ChunkMax.X);
+		Bounds += FBox3f(ChunkMin, ChunkMax);
+	}
+
+	for (int32 Index = VectorCount; Index < Count; ++Index)
+	{
+		if (!DecodePackedVertex(Source + Index * Stride, Stride, Dest[Index]))
+		{
+			return Index;
+		}
+		Bounds += Dest[Index].Position;
+	}
+	return INDEX_NONE;
 }
 } // namespace
 
@@ -416,6 +480,10 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 	TArray<uint8> ReadBuffer;
 	ReadBuffer.SetNumUninitialized(VerticesPerChunk * Header.VertexStride);
 	const bool bHasPackedLayout = HasPackedLayout(Header);
+	using FPackedDecoder = int32 (*)(const uint8 *, FPCSPointVertex *, int32, FBox3f &);
+	const FPackedDecoder PackedDecoder = bHasPackedLayout
+		? (Header.VertexStride == 15 ? &DecodePackedSIMD<15> : &DecodePackedSIMD<16>)
+		: nullptr;
 
 	for (int64 FirstVertex = 0; FirstVertex < Header.VertexCount; FirstVertex += VerticesPerChunk)
 	{
@@ -426,35 +494,34 @@ FPCSPlyLoadResult FPCSPlyLoader::LoadFromFile(const FString &FilePath)
 			return MakeLoadError(FString::Printf(TEXT("Unable to read PLY vertex payload at vertex %lld: %s"), FirstVertex, *FilePath));
 		}
 
-		const int32 PackedVertexCount = bHasPackedLayout ? ChunkVertexCount - (ChunkVertexCount % 2) : 0;
-		for (int32 ChunkIndex = 0; ChunkIndex < PackedVertexCount; ++ChunkIndex)
+		if (PackedDecoder)
 		{
-			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
-			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
-			DecodePackedVertex(VertexData, Header.VertexStride, Vertex);
-			if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
+			FPCSPointVertex *Dest = MutableFrame->Vertices.GetData() + FirstVertex;
+			const int32 InvalidIndex = PackedDecoder(ReadBuffer.GetData(), Dest, ChunkVertexCount, MutableFrame->Bounds);
+			if (InvalidIndex != INDEX_NONE)
 			{
-				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
+				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + InvalidIndex, *FilePath));
 			}
-			MutableFrame->Bounds += Vertex.Position;
 		}
-
-		for (int32 ChunkIndex = PackedVertexCount; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
+		else
 		{
-			const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
-			FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
-			Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
-										static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
-										static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
-
-			if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
+			for (int32 ChunkIndex = 0; ChunkIndex < ChunkVertexCount; ++ChunkIndex)
 			{
-				return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
-			}
+				const uint8 *VertexData = ReadBuffer.GetData() + ChunkIndex * Header.VertexStride;
+				FPCSPointVertex &Vertex = MutableFrame->Vertices[static_cast<int32>(FirstVertex) + ChunkIndex];
+				Vertex.Position = FVector3f(static_cast<float>(ReadScalar(VertexData + XProperty->Offset, XProperty->Type)),
+											static_cast<float>(ReadScalar(VertexData + YProperty->Offset, YProperty->Type)),
+											static_cast<float>(ReadScalar(VertexData + ZProperty->Offset, ZProperty->Type)));
 
-			Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
-								  ReadColor(VertexData, AlphaProperty, 255));
-			MutableFrame->Bounds += Vertex.Position;
+				if (!FMath::IsFinite(Vertex.Position.X) || !FMath::IsFinite(Vertex.Position.Y) || !FMath::IsFinite(Vertex.Position.Z))
+				{
+					return MakeLoadError(FString::Printf(TEXT("PLY vertex %lld contains a non-finite position: %s"), FirstVertex + ChunkIndex, *FilePath));
+				}
+
+				Vertex.Color = FColor(ReadColor(VertexData, RedProperty, 255), ReadColor(VertexData, GreenProperty, 255), ReadColor(VertexData, BlueProperty, 255),
+									  ReadColor(VertexData, AlphaProperty, 255));
+				MutableFrame->Bounds += Vertex.Position;
+			}
 		}
 	}
 
