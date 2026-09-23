@@ -16,6 +16,7 @@ public:
 	void Bind(const FShaderParameterMap &ParameterMap)
 	{
 		PointSizePixels.Bind(ParameterMap, TEXT("PCSPointSizePixels"));
+		ConvertSRGBToLinear.Bind(ParameterMap, TEXT("PCSConvertSRGBToLinear"));
 		ViewRight.Bind(ParameterMap, TEXT("PCSViewRight"));
 		ViewUp.Bind(ParameterMap, TEXT("PCSViewUp"));
 	}
@@ -36,6 +37,10 @@ public:
 		{
 			ShaderBindings.Add(ViewRight, UserData->ViewRight);
 		}
+		if (ConvertSRGBToLinear.IsBound())
+		{
+			ShaderBindings.Add(ConvertSRGBToLinear, UserData->ConvertSRGBToLinear);
+		}
 		if (ViewUp.IsBound())
 		{
 			ShaderBindings.Add(ViewUp, UserData->ViewUp);
@@ -44,6 +49,7 @@ public:
 
 private:
 	LAYOUT_FIELD(FShaderParameter, PointSizePixels);
+	LAYOUT_FIELD(FShaderParameter, ConvertSRGBToLinear);
 	LAYOUT_FIELD(FShaderParameter, ViewRight);
 	LAYOUT_FIELD(FShaderParameter, ViewUp);
 };

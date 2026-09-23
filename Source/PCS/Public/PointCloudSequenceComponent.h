@@ -31,6 +31,13 @@ public:
 	virtual void GetUsedMaterials(TArray<UMaterialInterface *> &OutMaterials, bool bGetDebugMaterials = false) const override;
 	virtual void SendRenderDynamicData_Concurrent() override;
 
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent &PropertyChangedEvent) override;
+#endif
+
+	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Rendering")
+	void SetConvertSRGBToLinear(bool bEnabled);
+
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -132,6 +139,11 @@ public:
 	// Requested rendered point size. The renderer will consume this value later.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Point Cloud Sequence|Rendering", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float PointSize = 1.0f;
+
+	// Interpret PLY RGB as sRGB and decode it to linear RGB before shading.
+	// Disable for PLY files that already contain linear RGB. Alpha is unchanged.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Point Cloud Sequence|Rendering", meta = (DisplayName = "Convert sRGB to Linear"))
+	bool bConvertSRGBToLinear = true;
 
 	// Surface material used to shade every point quad. The PCS default material
 	// is unlit and forwards each PLY vertex color to Emissive Color.

@@ -24,6 +24,7 @@ FPCSSceneProxy::FPCSSceneProxy(const UPointCloudSequenceComponent *Component) : 
 {
 	check(IsInGameThread());
 	PointSizePixels = FMath::Max(Component->PointSize, 0.0f);
+	bConvertSRGBToLinear = Component->bConvertSRGBToLinear;
 	FrameIndex = Component->LoadedFrameIndex;
 	InitialFrameData = Component->CurrentFrameData;
 
@@ -116,6 +117,7 @@ void FPCSSceneProxy::GetDynamicMeshElements(const TArray<const FSceneView *> &Vi
 		ViewData.Parameters.ViewRight = FVector3f(View->GetViewRight());
 		ViewData.Parameters.ViewUp = FVector3f(View->GetViewUp());
 		ViewData.Parameters.PointSizePixels = PointSizePixels;
+		ViewData.Parameters.ConvertSRGBToLinear = bConvertSRGBToLinear ? 1u : 0u;
 
 		FMeshBatch &Mesh = Collector.AllocateMesh();
 		Mesh.Type = PT_TriangleList;

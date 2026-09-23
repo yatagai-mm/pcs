@@ -44,4 +44,5 @@ private:
 	FMaterialRelevance MaterialRelevance;
 	int32 FrameIndex = INDEX_NONE;
 	float PointSizePixels = 1.0f;
+	bool bConvertSRGBToLinear = true;
 };

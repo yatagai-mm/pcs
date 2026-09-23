@@ -1,10 +1,12 @@
 #include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
 #include "/Engine/Private/VertexFactoryCommon.ush"
 
 // Loose, per-view parameters bound by FPCSVertexFactoryShaderParameters.
 float3 PCSViewRight;
 float3 PCSViewUp;
 float PCSPointSizePixels;
+uint PCSConvertSRGBToLinear;
 
 struct FVertexFactoryInput
 {
@@ -43,7 +45,13 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	Intermediates.SceneData = VF_GPUSCENE_GET_INTERMEDIATES(Input);
 	Intermediates.QuadCorner = Input.QuadCorner;
 	Intermediates.PointPosition = Input.PointPosition;
+	// VET_Color normalizes the bytes but does not decode the sRGB transfer curve.
+	// Materials consume linear RGB; alpha is already linear and stays unchanged.
 	Intermediates.Color = Input.PointColor;
+	if (PCSConvertSRGBToLinear != 0)
+	{
+		Intermediates.Color.rgb = sRGBToLinear(Input.PointColor.rgb);
+	}
 
 	// PCSViewRight and PCSViewUp are already World-space unit vectors. Keeping
 	// this basis in World space lets the shader face every quad toward this view
