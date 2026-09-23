@@ -11,6 +11,7 @@
 #include "PCSSceneProxy.h"
 #include "RenderingThread.h"
 #include "Tasks/Task.h"
+#include "UObject/UnrealType.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogPCSComponent, Log, All);
 
@@ -39,6 +40,27 @@ FPrimitiveSceneProxy *UPointCloudSequenceComponent::CreateSceneProxy()
 	check(IsInGameThread());
 	return new FPCSSceneProxy(this);
 }
+
+void UPointCloudSequenceComponent::SetConvertSRGBToLinear(bool bEnabled)
+{
+	if (bConvertSRGBToLinear != bEnabled)
+	{
+		bConvertSRGBToLinear = bEnabled;
+		MarkRenderStateDirty();
+	}
+}
+
+#if WITH_EDITOR
+void UPointCloudSequenceComponent::PostEditChangeProperty(FPropertyChangedEvent &PropertyChangedEvent)
+{
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(UPointCloudSequenceComponent, bConvertSRGBToLinear))
+	{
+		// Recreate the proxy even when playback is paused on the current frame.
+		MarkRenderStateDirty();
+	}
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+#endif
 
 void UPointCloudSequenceComponent::GetUsedMaterials(TArray<UMaterialInterface *> &OutMaterials, bool bGetDebugMaterials) const
 {

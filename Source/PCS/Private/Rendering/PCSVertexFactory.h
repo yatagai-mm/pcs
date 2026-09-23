@@ -13,6 +13,7 @@ struct FPCSVertexFactoryUserData
 	FVector3f ViewRight = FVector3f::RightVector;
 	FVector3f ViewUp = FVector3f::UpVector;
 	float PointSizePixels = 1.0f;
+	uint32 ConvertSRGBToLinear = 1;
 };
 
 class FPCSVertexFactory final : public FVertexFactory

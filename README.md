@@ -44,4 +44,10 @@ You will see a detail panel like this:
 
 Then you can specify the path to the PLY sequence folder and the regex pattern for the PLY files.
 
+Under **Point Cloud Sequence > Rendering**, **Convert sRGB to Linear** is enabled
+by default. Enable it for sRGB-encoded PLY colors, or disable it for colors already
+stored in linear RGB (the original PCS behavior). Alpha is unchanged. The setting
+applies per component and updates the displayed frame even while playback is
+paused. Blueprints can change it using **Set Convert SRGB to Linear**.
+
 See [yatagai-mm/pcs-playground](https://github.com/yatagai-mm/pcs-playground) for a sample project.
