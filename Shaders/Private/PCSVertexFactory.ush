@@ -1,4 +1,5 @@
 #include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
 #include "/Engine/Private/VertexFactoryCommon.ush"
 
 // Loose, per-view parameters bound by FPCSVertexFactoryShaderParameters.
@@ -43,7 +44,10 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	Intermediates.SceneData = VF_GPUSCENE_GET_INTERMEDIATES(Input);
 	Intermediates.QuadCorner = Input.QuadCorner;
 	Intermediates.PointPosition = Input.PointPosition;
-	Intermediates.Color = Input.PointColor;
+	// Experimental sRGB input interpretation for the longdress preview.
+	// VET_Color normalizes the bytes but does not decode the sRGB transfer curve.
+	// Materials consume linear RGB; alpha is already linear and stays unchanged.
+	Intermediates.Color = half4(sRGBToLinear(Input.PointColor.rgb), Input.PointColor.a);
 
 	// PCSViewRight and PCSViewUp are already World-space unit vectors. Keeping
 	// this basis in World space lets the shader face every quad toward this view
