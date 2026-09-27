@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Data/PCSFrameData.h"
+#include "PCSFrameData.h"
 
 // Result of loading one PLY frame. Exactly one of FrameData and ErrorMessage is populated.
 struct FPCSPlyLoadResult

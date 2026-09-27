@@ -1,6 +1,6 @@
 #include "PCSSceneProxy.h"
 
-#include "Data/PCSFrameData.h"
+#include "PCSFrameData.h"
 #include "Engine/Engine.h"
 #include "Materials/Material.h"
 #include "MeshBatch.h"

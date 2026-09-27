@@ -1,6 +1,6 @@
 #include "Rendering/PCSVertexFactory.h"
 
-#include "Data/PCSFrameData.h"
+#include "PCSFrameData.h"
 #include "DataDrivenShaderPlatformInfo.h"
 #include "MaterialDomain.h"
 #include "MeshBatch.h"

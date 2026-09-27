@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Data/PCSFrameData.h"
+#include "PCSFrameData.h"
 #include "RenderResource.h"
 #include "Rendering/PCSVertexFactory.h"
 
