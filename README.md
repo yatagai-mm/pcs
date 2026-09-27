@@ -1,8 +1,8 @@
 # PCS
 Point Cloud Sequence (PCS) is a UE plugin for rendering a sequence of XYZRGB point cloud frames. This plugin parses .ply files and render them with specified frame rate.
 
-<img width="320" alt="longdress" src="https://github.com/user-attachments/assets/970edbfb-9d4f-4b03-9ebe-b887a9939bcd" />
-<img width="320" alt="baseball" src="https://github.com/user-attachments/assets/0242378b-e06d-4047-9eda-e69479f3b708" />
+<img width="320" alt="longdress" src="https://github.com/user-attachments/assets/7d9f2c6f-718e-401c-b4bb-94ff7dd48375" />
+<img width="320" alt="baseball" src="https://github.com/user-attachments/assets/e109fac5-450c-4232-9acf-4bc5681df222" />
 
 PCS has demonstrated 30 FPS real-time playback of a VV sequence containing about 10 million XYZRGB points per frame. Each binary PLY frame is 148.5 MB, corresponding to 297 million points and 4.46 GB of uncompressed point-cloud data per second.
 
