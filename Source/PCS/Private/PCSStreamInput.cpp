@@ -1,4 +1,5 @@
 #include "PCSStreamInput.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Algo/BinarySearch.h"
 
 #include "Misc/ScopeLock.h"
@@ -11,6 +12,7 @@ FPCSStreamInput::FPCSStreamInput(const FPCSStreamConfig &InConfig) : Config(InCo
 
 EPCSSubmitResult FPCSStreamInput::TrySubmit(const FPCSTimedFrame &Frame)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_StreamSubmit);
 	FScopeLock Lock(&Mutex);
 	if (bClosed || bEndOfStream)
 	{
@@ -91,6 +93,7 @@ uint64 FPCSStreamInput::GetBufferedBytes() const
 
 FPCSStreamInput::FTickResult FPCSStreamInput::Advance(double DeltaSeconds)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_StreamAdvance);
 	FScopeLock Lock(&Mutex);
 	FTickResult Result;
 	Result.PlaybackTime = PlaybackTime;

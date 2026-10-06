@@ -1,4 +1,9 @@
 #include "PointCloudSequenceComponent.h"
+#include "ProfilingDebugging/CountersTrace.h"
+TRACE_DECLARE_FLOAT_COUNTER(PCSPlaybackPts, TEXT("PCS.PlaybackPTS"));
+TRACE_DECLARE_FLOAT_COUNTER(PCSDisplayedPts, TEXT("PCS.DisplayedPTS"));
+TRACE_DECLARE_INT_COUNTER(PCSActivatedPoints, TEXT("PCS.ActivatedPoints"));
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 #include "Algo/Sort.h"
 #include "HAL/FileManager.h"
@@ -93,6 +98,7 @@ FBoxSphereBounds UPointCloudSequenceComponent::CalcBounds(const FTransform &Loca
 
 void UPointCloudSequenceComponent::SendRenderDynamicData_Concurrent()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_EnqueueRenderUpdate);
 	Super::SendRenderDynamicData_Concurrent();
 
 	FPCSSceneProxy *PCSProxy = static_cast<FPCSSceneProxy *>(SceneProxy);
@@ -187,6 +193,7 @@ TSharedRef<FPCSStreamInput, ESPMode::ThreadSafe> UPointCloudSequenceComponent::O
 
 void UPointCloudSequenceComponent::AdvanceStreamPlayback(double DeltaSeconds)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_AdvancePlayback);
 	// Keep the old endpoint alive if a delegate replaces or closes the source.
 	const TSharedPtr<FPCSStreamInput, ESPMode::ThreadSafe> Input = StreamInput;
 	if (!Input.IsValid() || Input->IsClosed())
@@ -196,6 +203,7 @@ void UPointCloudSequenceComponent::AdvanceStreamPlayback(double DeltaSeconds)
 	}
 	FPCSStreamInput::FTickResult Result = Input->Advance(DeltaSeconds);
 	PlaybackTimeSeconds = Result.PlaybackTime;
+	TRACE_COUNTER_SET(PCSPlaybackPts, PlaybackTimeSeconds);
 	if (Result.bFinished)
 	{
 		bPlaying = false;
@@ -203,6 +211,7 @@ void UPointCloudSequenceComponent::AdvanceStreamPlayback(double DeltaSeconds)
 	if (Result.Frame.Data.IsValid())
 	{
 		CurrentStreamFrameId = Result.Frame.FrameId;
+		TRACE_COUNTER_SET(PCSDisplayedPts, Result.Frame.PresentationTime);
 		ActivateFrame(INDEX_NONE, MoveTemp(Result.Frame.Data));
 		OnStreamFrameActivated.Broadcast(Result.Frame.FrameId, Result.Frame.PresentationTime);
 	}
@@ -678,11 +687,13 @@ void UPointCloudSequenceComponent::HandleFrameLoadCompleted(uint64 RequestId, ui
 
 void UPointCloudSequenceComponent::ActivateFrame(int32 FrameIndex, TSharedPtr<const FPCSFrameData> FrameData)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_ActivateFrame);
 	check(IsInGameThread());
 	check(FrameData.IsValid());
 
 	CurrentFrameData = MoveTemp(FrameData);
 	LoadedFrameIndex = FrameIndex;
+	TRACE_COUNTER_SET(PCSActivatedPoints, CurrentFrameData->Vertices.Num());
 	UE_LOG(LogPCSComponent, Verbose, TEXT("Activated point-cloud frame %d with %d points."), FrameIndex, CurrentFrameData->Vertices.Num());
 	UpdateBounds();
 	MarkRenderTransformDirty();

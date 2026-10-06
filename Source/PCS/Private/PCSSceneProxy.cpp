@@ -1,4 +1,5 @@
 #include "PCSSceneProxy.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 #include "PCSFrameData.h"
 #include "Engine/Engine.h"
@@ -58,6 +59,7 @@ void FPCSSceneProxy::CreateRenderThreadResources(FRHICommandListBase &RHICmdList
 void FPCSSceneProxy::SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, int32 InFrameIndex, TSharedPtr<const FPCSFrameData> InFrameData,
 											   float InPointSizePixels)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_SetFrameData_RenderThread);
 	check(IsInRenderingThread());
 
 	PointSizePixels = FMath::Max(InPointSizePixels, 0.0f);
@@ -80,6 +82,7 @@ void FPCSSceneProxy::SetFrameData_RenderThread(FRHICommandListBase &RHICmdList, 
 // Release reference to the FrameResources
 void FPCSSceneProxy::ReleaseFrameResources_RenderThread()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_ReleaseFrameResources);
 	if (FrameResources.IsValid())
 	{
 		// UE 5.8 may destroy scene proxies from a parallel rendering task while
@@ -100,6 +103,7 @@ SIZE_T FPCSSceneProxy::GetTypeHash() const
 void FPCSSceneProxy::GetDynamicMeshElements(const TArray<const FSceneView *> &Views, const FSceneViewFamily &, uint32 VisibilityMap,
 											FMeshElementCollector &Collector) const
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_GetDynamicMeshElements);
 	if (!FrameResources.IsValid() || !FrameResources->IsInitialized() || FrameResources->GetNumPoints() == 0 || MaterialRenderProxy == nullptr)
 	{
 		return;

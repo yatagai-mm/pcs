@@ -1,4 +1,5 @@
 #include "Rendering/PCSRenderResources.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 #include "RHICommandList.h"
 
@@ -49,6 +50,7 @@ FPCSPointVertexBuffer::FPCSPointVertexBuffer(TSharedPtr<const FPCSFrameData> InF
 
 void FPCSPointVertexBuffer::InitRHI(FRHICommandListBase &RHICmdList)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_PointBufferInitRHI);
 	check(FrameData.IsValid());
 	check(NumPoints > 0);
 
@@ -80,6 +82,7 @@ FPCSFrameRenderResources::~FPCSFrameRenderResources()
 
 void FPCSFrameRenderResources::InitResources(FRHICommandListBase &RHICmdList)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_InitResources);
 	check(IsInRenderingThread());
 	// These ultimately call InitRHI() on both buffers
 	PointVertexBuffer.InitResource(RHICmdList);
@@ -88,6 +91,7 @@ void FPCSFrameRenderResources::InitResources(FRHICommandListBase &RHICmdList)
 
 void FPCSFrameRenderResources::ReleaseResources()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(PCS_ReleaseResources);
 	check(IsInRenderingThread() || IsInParallelRenderingThread());
 
 	// Release the declaration first because it references streams backed by the
