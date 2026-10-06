@@ -1,6 +1,29 @@
 # PCS
 Point Cloud Sequence (PCS) is a UE plugin for rendering a sequence of XYZRGB point cloud frames. This plugin parses .ply files and render them with specified frame rate.
 
+## Decode a PLY from another module
+
+Add `PCS` to your module dependencies and include `PCSPlyLoader.h`:
+
+```cpp
+const FPCSPlyLoadResult Result = FPCSPlyLoader::LoadFromFile(FilePath);
+if (Result.IsSuccess())
+{
+    TSharedPtr<const FPCSFrameData> Frame = Result.FrameData;
+    // Frame->Vertices and Frame->Bounds are ready for consumers.
+}
+// On failure, Result.ErrorMessage describes the problem.
+```
+
+This is synchronous file I/O; invoke it on a worker for playback or publishing.
+The loader has no UObject dependency and independent calls can run concurrently.
+It supports binary little-endian PLY 1.0 with scalar vertex properties. Positions,
+colors and bounds are decoded directly into `FPCSFrameData`; optional
+`frame_to_world` comments are applied. No actor transform or color-space conversion
+is applied. Treat returned frame data as immutable. Empty vertex sets are valid;
+missing or malformed files return an error. Frame IDs, PTS and transport are the
+caller's responsibility.
+
 <img width="320" alt="longdress" src="https://github.com/user-attachments/assets/7d9f2c6f-718e-401c-b4bb-94ff7dd48375" />
 <img width="320" alt="baseball" src="https://github.com/user-attachments/assets/e109fac5-450c-4232-9acf-4bc5681df222" />
 

@@ -3,7 +3,7 @@
 #include "Algo/Sort.h"
 #include "HAL/FileManager.h"
 #include "Internationalization/Regex.h"
-#include "Loading/PCSPlyLoader.h"
+#include "PCSPlyLoader.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/UnrealMathUtility.h"

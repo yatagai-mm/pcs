@@ -1,4 +1,4 @@
-#include "Loading/PCSPlyLoader.h"
+#include "PCSPlyLoader.h"
 
 #include "HAL/PlatformFileManager.h"
 #include "Math/UnrealMathUtility.h"

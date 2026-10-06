@@ -1,6 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "Loading/PCSPlyLoader.h"
+#include "PCSPlyLoader.h"
 #include "PointCloudSequenceComponent.h"
 
 #include "Engine/World.h"
