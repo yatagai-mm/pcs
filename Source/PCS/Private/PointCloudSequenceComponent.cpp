@@ -107,14 +107,19 @@ void UPointCloudSequenceComponent::SendRenderDynamicData_Concurrent()
 
 	ENQUEUE_RENDER_COMMAND(PCSSetFrameData)(
 		[PCSProxy, FrameIndex, FrameData = MoveTemp(FrameData), PointSizePixels](FRHICommandListImmediate &RHICmdList) mutable
-		{ PCSProxy->SetFrameData_RenderThread(RHICmdList, FrameIndex, MoveTemp(FrameData), PointSizePixels); });
+		{
+			PCSProxy->SetFrameData_RenderThread(RHICmdList, FrameIndex, MoveTemp(FrameData), PointSizePixels);
+		});
 }
 
 void UPointCloudSequenceComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	check(IsInGameThread());
-	RefreshSequence();
+	if (!bStreamMode)
+	{
+		RefreshSequence();
+	}
 
 	if (bAutoPlay)
 	{
@@ -126,6 +131,7 @@ void UPointCloudSequenceComponent::EndPlay(const EEndPlayReason::Type EndPlayRea
 {
 	check(IsInGameThread());
 	bPlaying = false;
+	CloseStreamInput();
 	InvalidatePendingLoads();
 	CurrentFrameData.Reset();
 	BufferedFrames.Reset();
@@ -134,10 +140,91 @@ void UPointCloudSequenceComponent::EndPlay(const EEndPlayReason::Type EndPlayRea
 	Super::EndPlay(EndPlayReason);
 }
 
+void UPointCloudSequenceComponent::BeginDestroy()
+{
+	CloseStreamInput();
+	Super::BeginDestroy();
+}
+
+void UPointCloudSequenceComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+	bPlaying = false;
+	CloseStreamInput();
+	InvalidatePendingLoads();
+	Super::OnComponentDestroyed(bDestroyingHierarchy);
+}
+
+void UPointCloudSequenceComponent::CloseStreamInput()
+{
+	if (StreamInput.IsValid())
+	{
+		StreamInput->Close();
+		StreamInput.Reset();
+	}
+}
+
+TSharedRef<FPCSStreamInput, ESPMode::ThreadSafe> UPointCloudSequenceComponent::OpenStream(const FPCSStreamConfig &Config)
+{
+	check(IsInGameThread());
+	CloseStreamInput();
+	InvalidatePendingLoads();
+	bStreamMode = true;
+	bPlaying = false;
+	SequenceFilePaths.Reset();
+	BufferedFrames.Reset();
+	CurrentFrameData.Reset();
+	FrameCount = 0;
+	CurrentFrameIndex = INDEX_NONE;
+	LoadedFrameIndex = INDEX_NONE;
+	CurrentStreamFrameId = INDEX_NONE;
+	PlaybackTimeSeconds = 0.0;
+	UpdateBounds();
+	MarkRenderTransformDirty();
+	MarkRenderDynamicDataDirty();
+	StreamInput = MakeShared<FPCSStreamInput, ESPMode::ThreadSafe>(Config);
+	return StreamInput.ToSharedRef();
+}
+
+void UPointCloudSequenceComponent::AdvanceStreamPlayback(double DeltaSeconds)
+{
+	// Keep the old endpoint alive if a delegate replaces or closes the source.
+	const TSharedPtr<FPCSStreamInput, ESPMode::ThreadSafe> Input = StreamInput;
+	if (!Input.IsValid() || Input->IsClosed())
+	{
+		bPlaying = false;
+		return;
+	}
+	FPCSStreamInput::FTickResult Result = Input->Advance(DeltaSeconds);
+	PlaybackTimeSeconds = Result.PlaybackTime;
+	if (Result.bFinished)
+	{
+		bPlaying = false;
+	}
+	if (Result.Frame.Data.IsValid())
+	{
+		CurrentStreamFrameId = Result.Frame.FrameId;
+		ActivateFrame(INDEX_NONE, MoveTemp(Result.Frame.Data));
+		OnStreamFrameActivated.Broadcast(Result.Frame.FrameId, Result.Frame.PresentationTime);
+	}
+	if (Result.bFinished && StreamInput == Input)
+	{
+		OnPlaybackFinished.Broadcast();
+	}
+}
+
 void UPointCloudSequenceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	check(IsInGameThread());
+
+	if (bStreamMode)
+	{
+		if (bPlaying && FMath::IsFinite(PlaybackRate) && PlaybackRate > 0.0f && FMath::IsFinite(DeltaTime) && DeltaTime >= 0.0f)
+		{
+			AdvanceStreamPlayback(static_cast<double>(DeltaTime) * PlaybackRate);
+		}
+		return;
+	}
 
 	if (!bPlaying || FrameCount <= 0 || PlaybackRate <= 0.0f)
 	{
@@ -158,6 +245,10 @@ void UPointCloudSequenceComponent::TickComponent(float DeltaTime, ELevelTick Tic
 void UPointCloudSequenceComponent::Play()
 {
 	check(IsInGameThread());
+	if (bStreamMode && (!StreamInput.IsValid() || StreamInput->IsClosed()))
+	{
+		return;
+	}
 	bPlaying = true;
 }
 
@@ -172,6 +263,11 @@ void UPointCloudSequenceComponent::Stop()
 	check(IsInGameThread());
 
 	bPlaying = false;
+	if (bStreamMode)
+	{
+		CloseStreamInput();
+		return;
+	}
 	PlaybackTimeSeconds = 0.0;
 	SetCurrentFrameInternal(0);
 }
@@ -179,6 +275,10 @@ void UPointCloudSequenceComponent::Stop()
 void UPointCloudSequenceComponent::SeekFrame(int32 FrameIndex)
 {
 	check(IsInGameThread());
+	if (bStreamMode)
+	{
+		return;
+	}
 
 	const int32 ClampedFrameIndex = ClampFrameIndex(FrameIndex);
 	// Increase precision by making dividend double
@@ -189,6 +289,10 @@ void UPointCloudSequenceComponent::SeekFrame(int32 FrameIndex)
 void UPointCloudSequenceComponent::SeekTime(double TimeSeconds)
 {
 	check(IsInGameThread());
+	if (bStreamMode)
+	{
+		return;
+	}
 
 	double ClampedTime = FMath::Max(0.0, TimeSeconds);
 	if (FrameCount > 0)
@@ -220,6 +324,9 @@ void UPointCloudSequenceComponent::SetSequenceSource(const FString &Directory, c
 bool UPointCloudSequenceComponent::RefreshSequence()
 {
 	check(IsInGameThread());
+	CloseStreamInput();
+	bStreamMode = false;
+	CurrentStreamFrameId = INDEX_NONE;
 
 	InvalidatePendingLoads();
 	SequenceFilePaths.Reset();
@@ -323,6 +430,10 @@ int32 UPointCloudSequenceComponent::GetBufferedFrame() const
 void UPointCloudSequenceComponent::SetFrameCount(int32 InFrameCount)
 {
 	check(IsInGameThread());
+	if (bStreamMode)
+	{
+		return;
+	}
 
 	FrameCount = FMath::Max(0, InFrameCount);
 	if (FrameCount == 0)

@@ -37,6 +37,7 @@ git submodule add https://github.com/yatagai-mm/pcs.git Plugins/PCS
 ```
 
 ## How to Use
+### Load from .ply files
 For C++ projects, add `PCS` to your module's dependencies:
 
 ```csharp
@@ -74,3 +75,82 @@ applies per component and updates the displayed frame even while playback is
 paused. Blueprints can change it using **Set Convert SRGB to Linear**.
 
 See [yatagai-mm/pcs-playground](https://github.com/yatagai-mm/pcs-playground) for a sample project.
+
+### Streaming decoded frames
+
+Include `PCSStreamInput.h` and `PointCloudSequenceComponent.h` in a module that
+depends on `PCS`. No PLY files or transport library are required. Open the stream
+and control playback on the game thread:
+
+```cpp
+FPCSStreamConfig Config;
+Config.MaxBufferedFrames = 8;
+Config.MaxBufferedBytes = 512ull * 1024 * 1024;
+auto Input = PointCloud->OpenStream(Config);
+PointCloud->Play();
+```
+
+Keep `Input` in the producer. From a receive/decoder worker, submit complete,
+decoded frames with media timestamps in seconds:
+
+```cpp
+auto Data = MakeShared<FPCSFrameData, ESPMode::ThreadSafe>();
+FPCSPointVertex Point;
+Point.Position = FVector3f(1.0f, 2.0f, 3.0f);
+Point.Color = FColor::Red;
+Data->Vertices.Add(Point);
+Data->Bounds += Point.Position;
+
+FPCSTimedFrame Frame;
+Frame.FrameId = 42;               // Non-negative application ID, independent of PTS.
+Frame.PresentationTime = 12.5;    // Media time, not network arrival time.
+Frame.Duration = 1.0 / 30.0;      // Positive; independent of the component's FrameRate.
+Frame.Data = Data;
+const EPCSSubmitResult Result = Input->TrySubmit(Frame);
+// Handle Backpressure by retrying later or dropping according to producer policy.
+// Accepted retains a shared reference: do not mutate Data after submission.
+```
+
+Positions and bounds must be finite and in component-local space. The producer
+must compute enclosing bounds and validate the vertices; submission checks
+metadata, bounds and buffer sizes without rescanning every point. An empty frame
+is allowed and clears the visible points when activated.
+
+- The first playing tick with data anchors the clock to the earliest queued PTS.
+  Subsequent ticks advance it by `DeltaTime * PlaybackRate`. `GetPlaybackTime()`
+  returns this media time, not elapsed time since opening. There is no startup
+  prebuffer delay; queue initial frames before `Play()` if reordering at startup
+  is needed. This clock follows UE game time, including world time dilation.
+- Frames are sorted by PTS. Each tick activates the latest frame due and discards
+  older due frames. Frames at or before the last activated PTS return
+  `DroppedLate`; duplicate queued timestamps or IDs return `Duplicate`.
+- Underflow holds the last image while the clock advances. It does not end the
+  stream. `Pause()` freezes the clock; `Play()` resumes from that position without
+  jumping to the live edge. Producers can still fill the bounded queue while paused.
+- Queue limits cover CPU vertex allocations waiting for playback, not producer
+  memory, the displayed frame, render commands or GPU resources. Defaults are eight
+  frames and 512 MiB. Counts below one and byte limits below one vertex are clamped.
+  A frame exceeding the entire byte budget returns `Invalid`; a temporarily full
+  queue returns `Backpressure`. Rejected frames are not retained.
+- After all workers finish submitting, call `Input->SignalEndOfStream()`. Further
+  submissions return `Closed`. Playback drains the queue and emits
+  `OnPlaybackFinished` once its final end PTS (maximum accepted PTS + duration) is
+  reached. An empty stream also finishes. The last image remains visible.
+- `Stop()` closes the input and drops queued frames, retaining the last image and
+  time. `OpenStream()` starts a fresh, paused stream and clears the old image.
+  Source replacement, EndPlay and component destruction close old handles, so late
+  workers cannot feed a replacement stream. `Input->Close()` also cancels a stream
+  without emitting playback completion.
+- `FrameRate`, `FrameCount`, `bLoop`, `SeekFrame()` and `SeekTime()` do not control
+  stream playback. `GetFrameCount()` stays zero, and file-index getters return
+  `INDEX_NONE`. Use `GetCurrentStreamFrameId()` and `OnStreamFrameActivated` for
+  stream frames. Activation is a game-thread renderer submission, not GPU present.
+- `SetSequenceSource()` / `RefreshSequence()` switch back to file playback.
+  Opening a stream before BeginPlay prevents automatic file discovery; `bAutoPlay`
+  still applies at BeginPlay. Opening it after BeginPlay requires explicit `Play()`.
+
+`TrySubmit()`, `SignalEndOfStream()`, `Close()` and the input handle's status getters
+are thread-safe. Component methods must be called on the game thread. A
+mutex protects the queue; capacity exhaustion never waits for the consumer.
+The input accepts whole frames; assembling spatial chunks or decoding temporal
+segments belongs to the producer.

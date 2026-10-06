@@ -2,6 +2,7 @@
 
 #include "Components/PrimitiveComponent.h"
 #include "CoreMinimal.h"
+#include "PCSStreamInput.h"
 #include "UObject/SoftObjectPath.h"
 
 #include "PointCloudSequenceComponent.generated.h"
@@ -12,6 +13,8 @@ class UMaterialInterface;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSFrameChangedSignature, int32, PreviousFrameIndex, int32, CurrentFrameIndex);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPCSPlaybackFinishedSignature);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPCSStreamFrameActivatedSignature, int64, FrameId, double, PresentationTime);
 
 // Game-thread-facing playback component for a point-cloud frame sequence.
 //
@@ -40,8 +43,25 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void BeginDestroy() override;
+	virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
+
+	// Game thread only. Replaces the source and clears the display. The returned
+	// handle accepts decoded frames from any thread. Call Play() to start.
+	// FrameCount stays zero; FrameRate, bLoop and Seek do not apply to streams.
+	TSharedRef<FPCSStreamInput, ESPMode::ThreadSafe> OpenStream(const FPCSStreamConfig &Config = FPCSStreamConfig());
+
+	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Source")
+	bool IsStreaming() const { return bStreamMode; }
+
+	// Last frame activated toward the renderer, not a GPU presentation timestamp.
+	UFUNCTION(BlueprintPure, Category = "Point Cloud Sequence|Playback")
+	int64 GetCurrentStreamFrameId() const { return CurrentStreamFrameId; }
+
+	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
+	FPCSStreamFrameActivatedSignature OnStreamFrameActivated;
 
 	// Starts or resumes timeline advancement. This request is retained while the sequence is still loading.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
@@ -51,15 +71,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void Pause();
 
-	// Stops playback and returns to frame zero.
+	// Files: returns to frame zero. Streams: closes input and keeps the last image;
+	// call OpenStream() to start another stream.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void Stop();
 
-	// Selects a frame immediately. Out-of-range values are clamped when the frame count is known.
+	// Selects a file frame immediately. No-op for streams.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void SeekFrame(int32 FrameIndex);
 
-	// Selects a timeline position in seconds.
+	// Selects a file timeline position in seconds. No-op for streams.
 	UFUNCTION(BlueprintCallable, Category = "Point Cloud Sequence|Playback")
 	void SeekTime(double TimeSeconds);
 
@@ -109,7 +130,8 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
 	FPCSFrameChangedSignature OnFrameChanged;
 
-	// Emitted on the game thread when non-looping playback reaches the end.
+	// Emitted on the game thread when non-looping file playback ends, or a stream
+	// drains after SignalEndOfStream() and the final duration elapses.
 	UPROPERTY(BlueprintAssignable, Category = "Point Cloud Sequence|Events")
 	FPCSPlaybackFinishedSignature OnPlaybackFinished;
 
@@ -163,6 +185,8 @@ private:
 	};
 
 	void AdvancePlayback(float DeltaSeconds);
+	void AdvanceStreamPlayback(double DeltaSeconds);
+	void CloseStreamInput();
 	void SetCurrentFrameInternal(int32 NewFrameIndex);
 	void RequestFrameLoad(int32 FrameIndex);
 	void RequestNextFrameLoad();
@@ -202,6 +226,9 @@ private:
 
 	TArray<FString> SequenceFilePaths;
 	TSharedPtr<const FPCSFrameData> CurrentFrameData;
+	TSharedPtr<FPCSStreamInput, ESPMode::ThreadSafe> StreamInput;
+	bool bStreamMode = false;
+	int64 CurrentStreamFrameId = INDEX_NONE;
 
 	// Parsed future frames waiting for their presentation time.
 	// FrameBufferSize limits the number of elements; it is currently one.
